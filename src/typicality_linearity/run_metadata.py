@@ -10,7 +10,7 @@ from importlib import metadata as package_metadata
 
 import numpy as np
 
-PACKAGES = ("torch", "transformers", "numpy", "pyyaml")
+PACKAGES = ("torch", "transformers", "numpy", "pyyaml", "scikit-learn")
 
 
 def run_git(args):

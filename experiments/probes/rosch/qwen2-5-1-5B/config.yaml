@@ -3,7 +3,7 @@ title: "Typicality probes on Rosch prompts: Qwen2.5-1.5B, layer 15, period token
 model: Qwen/Qwen2.5-1.5B
 # One row for each item and prompt category: 565 x 10 = 5650 rows. The probes
 # use only the 565 target rows. The other rows give the mean contrast baseline.
-prompts_csv: data/processed/rosch/rosch_mean_contrast.csv
+prompts_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
 prompt_columns:
   - rosch_example
   - rosch_neg

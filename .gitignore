@@ -3,3 +3,6 @@ outputs/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
+
+# Copies of generated HTML pages in experiment folders
+experiments/probes/global-direction/**/*.html

@@ -192,6 +192,7 @@ def transfer_matrices(
     - "categories", "prompts": the order of the matrix rows and columns
     - "alphas": list of ridge alpha records
     - "full_probes"[probe_type][category][prompt]: LinearProbe
+    - "fold_probes"[probe_type][category][prompt]: list of LinearProbe, one per fold
     """
     y = np.asarray(y, dtype=np.float64)
     categories = np.asarray(categories)
@@ -262,4 +263,5 @@ def transfer_matrices(
         "prompts": prompt_names,
         "alphas": alpha_records,
         "full_probes": full,
+        "fold_probes": by_fold,
     }

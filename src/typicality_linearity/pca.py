@@ -33,3 +33,26 @@ def fit_pca(x, n_components):
     ratio = variance[:n_components] / variance.sum()
     projections = centred @ components.T
     return PcaResult(projections, components, ratio, mean)
+
+
+def explained_variance_ratio_all(x):
+    """Return the explained variance ratio of all components of x.
+
+    x has shape (n_samples, n_features). There are min(n_samples, n_features)
+    values; at most n_samples - 1 of them are not zero.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    centred = x - x.mean(axis=0)
+    singular_values = np.linalg.svd(centred, compute_uv=False)
+    variance = singular_values**2
+    return variance / variance.sum()
+
+
+def n_components_for_variance(ratio, threshold):
+    """Return the smallest number of components whose ratios sum to threshold.
+
+    ratio: explained variance ratios, largest first. A small tolerance stops
+    float rounding from adding one component.
+    """
+    cumulative = np.cumsum(ratio)
+    return int(np.searchsorted(cumulative, threshold - 1e-12) + 1)

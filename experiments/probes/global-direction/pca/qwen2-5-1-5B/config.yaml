@@ -1,0 +1,45 @@
+experiment: global-direction-pca-qwen2-5-1-5B
+title: "Rosch PCA by activation type: Qwen2.5-1.5B, period token"
+model: Qwen/Qwen2.5-1.5B
+# Raw and category contrast activations come from this file (the target rows
+# give the raw activations).
+cat_contrast_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
+# Item contrast activations: 9 contrast items per pair (seed 0).
+item_contrast_csv: data/processed/rosch/rosch_mean_item_contrast.csv
+# The 15 training prompt formats. The evaluation formats have no item contrast
+# file, so they are not used.
+prompt_columns:
+  - rosch_example
+  - rosch_neg
+  - rosch_simple
+  - rosch_fav
+  - rosch_story_1
+  - rosch_story_2
+  - rosch_story_neg
+  - rosch_typ_frame_1
+  - rosch_typ_frame_2
+  - rosch_typ_frame_3
+  - rosch_hedge_1
+  - rosch_hedge_2
+  - rosch_hedge_3
+  - rosch_cat_first_1
+  - rosch_cat_first_2
+# Extraction settings. These are part of the activation cache key. They are the
+# same as experiments/probes/global-direction/activations/qwen2-5-1-5B, so the
+# activations come from the cache.
+layers: [10, 15, 20, 25]
+position: period
+batch_size: 16
+device: auto
+dtype: float32
+prefix_token: "<|endoftext|>"
+activation_cache_dir: outputs/activation_cache
+# Components kept for the plots (the page shows 2 or 3).
+n_components: 3
+# Page 2: the number of components for this fraction of the variance.
+variance_threshold: 0.95
+seed: 0
+output_dir: outputs/pca/global-direction/qwen2-5-1-5B
+html_name: qwen2-5-1-5B-rosch-pca.html
+# A copy of the page goes here (in .gitignore). null: no copy.
+copy_html_to: experiments/probes/global-direction/pca

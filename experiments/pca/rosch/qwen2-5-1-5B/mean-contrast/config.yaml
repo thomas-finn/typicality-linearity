@@ -2,7 +2,7 @@ experiment: pca-rosch-qwen2-5-1-5B-mean-contrast
 title: "PCA of Rosch prompts: Qwen2.5-1.5B, mean contrast baseline"
 model: Qwen/Qwen2.5-1.5B
 # One row for each item and prompt category: 565 x 10 = 5650 rows.
-prompts_csv: data/processed/rosch/rosch_mean_contrast.csv
+prompts_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
 prompt_columns:
   - rosch_example
   - rosch_neg

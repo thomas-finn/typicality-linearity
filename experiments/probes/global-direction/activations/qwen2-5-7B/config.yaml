@@ -1,0 +1,34 @@
+experiment: global-direction-activations-qwen2-5-7B
+model: Qwen/Qwen2.5-7B
+# All prompt files in data/processed/rosch/. Each prompt column of each file is
+# one cache entry.
+prompt_csvs:
+  - data/processed/rosch/rosch_prompts.csv
+  - data/processed/rosch/rosch_mean_cat_contrast.csv
+  - data/processed/rosch/rosch_mean_item_contrast.csv
+  - data/processed/rosch/rosch_eval.csv
+  - data/processed/rosch/rosch_mean_item_contrast_eval.csv
+# all: every column that starts with "rosch_". Or give a list of column names.
+prompt_columns: all
+# Target file: source file. Every prompt of the item contrast file is also in
+# the category contrast file, so its entries are made from the cached category
+# contrast entries, without the model.
+derive_from:
+  data/processed/rosch/rosch_mean_item_contrast.csv: data/processed/rosch/rosch_mean_cat_contrast.csv
+  data/processed/rosch/rosch_mean_item_contrast_eval.csv: data/processed/rosch/rosch_eval.csv
+# Extraction settings. These are part of the activation cache key.
+# Qwen2.5-7B has 28 blocks, the same as Qwen2.5-1.5B, so the layers are the same.
+# Layer L is the residual stream after transformer block L (hidden_states[L]).
+layers: [10, 15, 20, 25]
+# period: the token that contains the final period of the prompt.
+positions: [period]
+# For a GPU with 40 GB or more (A100). Use a smaller value if out of memory.
+batch_size: 64
+device: auto
+# float32, the same as the 1.5B run. The 7B weights are about 30 GB.
+dtype: float32
+# Token put before every prompt. Qwen2.5 adds no start token.
+prefix_token: "<|endoftext|>"
+seed: 0
+activation_cache_dir: outputs/activation_cache
+output_dir: outputs/activations/global-direction/qwen2-5-7B

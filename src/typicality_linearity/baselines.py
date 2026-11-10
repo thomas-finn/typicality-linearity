@@ -1,14 +1,24 @@
 """Baselines that are subtracted from activations before PCA.
 
-Mean contrast: for item i rated in category c, the result is
+Mean contrast: the target row of a group minus the mean of the other rows of
+the group. A group is all rows of one (item, item_category) pair. Two layouts
+of rows are supported:
 
-    a(i, c) - mean over c' != c of a(i, c')
+- Category contrast (`rosch_mean_cat_contrast.csv`): one row for each item and
+  each prompt category. For item i rated in category c, the result is
 
-The rows come from `rosch_mean_contrast.csv`: one row for each item and each
-prompt category. A group is all rows of one (item, item_category) pair. The
-target row of a group has `is_item_category` true. The other rows of the group
-give the baseline. All other categories are used, also categories in which the
-item is rated (for example "tomato" in "vegetable" when c is "fruit").
+      a(i, c) - mean over c' != c of a(i, c')
+
+  The target row has `is_item_category` true. All other categories are used,
+  also categories in which the item is rated (for example "tomato" in
+  "vegetable" when c is "fruit").
+
+- Item contrast (`rosch_mean_item_contrast.csv`): the category c is fixed and
+  the item changes. For item i rated in c, the result is
+
+      a(i, c) - mean over contrast items j of a(j, c)
+
+  The target row has `is_anchor` true.
 """
 
 import numpy as np
@@ -20,11 +30,27 @@ def is_true(value):
     return str(value) == "True"
 
 
+# Columns that mark the target row of a group, one for each layout.
+TARGET_COLUMNS = ("is_item_category", "is_anchor")
+
+
+def target_column(rows):
+    """Return the column that marks the target rows: is_item_category or is_anchor."""
+    found = [column for column in TARGET_COLUMNS if column in rows[0]]
+    if len(found) != 1:
+        raise ValueError(
+            f"Rows must have exactly one of the columns {TARGET_COLUMNS}, found {found}"
+        )
+    return found[0]
+
+
 def mean_contrast_groups(rows):
     """Return a list of (target row index, [other row indices]), one per group.
 
-    The order is the order of the target rows in `rows`.
+    The target row has `is_item_category` or `is_anchor` true (see
+    target_column). The order is the order of the target rows in `rows`.
     """
+    column = target_column(rows)
     group_rows = {}
     for index, row in enumerate(rows):
         key = (row["item"], row["item_category"])
@@ -32,12 +58,12 @@ def mean_contrast_groups(rows):
 
     groups = []
     for key, indices in group_rows.items():
-        targets = [i for i in indices if is_true(rows[i]["is_item_category"])]
-        others = [i for i in indices if not is_true(rows[i]["is_item_category"])]
+        targets = [i for i in indices if is_true(rows[i][column])]
+        others = [i for i in indices if not is_true(rows[i][column])]
         if len(targets) != 1:
             raise ValueError(f"Group {key} has {len(targets)} target rows, not 1")
         if len(others) == 0:
-            raise ValueError(f"Group {key} has no rows for other categories")
+            raise ValueError(f"Group {key} has no contrast rows")
         groups.append((targets[0], others))
     groups.sort(key=lambda group: group[0])
     return groups

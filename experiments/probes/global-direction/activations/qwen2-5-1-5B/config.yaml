@@ -1,0 +1,31 @@
+experiment: global-direction-activations-qwen2-5-1-5B
+model: Qwen/Qwen2.5-1.5B
+# All prompt files in data/processed/rosch/. Each prompt column of each file is
+# one cache entry.
+prompt_csvs:
+  - data/processed/rosch/rosch_prompts.csv
+  - data/processed/rosch/rosch_mean_cat_contrast.csv
+  - data/processed/rosch/rosch_mean_item_contrast.csv
+  - data/processed/rosch/rosch_eval.csv
+  - data/processed/rosch/rosch_mean_item_contrast_eval.csv
+# all: every column that starts with "rosch_". Or give a list of column names.
+prompt_columns: all
+# Target file: source file. Every prompt of the item contrast file is also in
+# the category contrast file, so its entries are made from the cached category
+# contrast entries, without the model.
+derive_from:
+  data/processed/rosch/rosch_mean_item_contrast.csv: data/processed/rosch/rosch_mean_cat_contrast.csv
+  data/processed/rosch/rosch_mean_item_contrast_eval.csv: data/processed/rosch/rosch_eval.csv
+# Extraction settings. These are part of the activation cache key.
+# Layer L is the residual stream after transformer block L (hidden_states[L]).
+layers: [10, 15, 20, 25]
+# period: the token that contains the final period of the prompt.
+positions: [period]
+batch_size: 16
+device: auto
+dtype: float32
+# Token put before every prompt. Qwen2.5 adds no start token.
+prefix_token: "<|endoftext|>"
+seed: 0
+activation_cache_dir: outputs/activation_cache
+output_dir: outputs/activations/global-direction/qwen2-5-1-5B

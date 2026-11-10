@@ -1,0 +1,64 @@
+experiment: probes-rosch-qwen2-5-1-5B-diff-means
+title: "Difference-of-means variants on Rosch prompts: Qwen2.5-1.5B, layer 15, period token"
+model: Qwen/Qwen2.5-1.5B
+# Same data and extraction settings as experiments/probes/rosch/qwen2-5-1-5B,
+# so the activations come from the cache. The CSV now has an is_ambiguous
+# column; the cache key uses only the prompt and item texts, so it does not change.
+prompts_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
+prompt_columns:
+  - rosch_example
+  - rosch_neg
+  - rosch_simple
+  - rosch_fav
+  - rosch_story_1
+  - rosch_story_2
+  - rosch_story_neg
+layers: [10, 15, 20, 25]
+positions: [period]
+probe_layer: 15
+probe_position: period
+# null is no baseline. mean_contrast: a(i, c) - mean over c' != c of a(i, c').
+baselines: [null, mean_contrast]
+# Typicality = target_sign x target. A low rating is typical.
+target: rating_zscore
+target_sign: -1
+metrics: [spearman, pearson]
+n_folds: 5
+cv_aggregate: pooled
+# Settings grid. All combinations are run.
+# n_groups: the probe uses the top and bottom 1/n_groups of the items.
+# 2: halves, 3: thirds (the method of the parent experiment), 4: quarters.
+n_groups: [2, 3, 4]
+# Group means are weighted by exp(c x typicality) = exp(-c x rating_zscore).
+# c = 0 is no weighting. rating_zscore is in [-1.8, 3.5], so c = 1 gives a
+# weight ratio of up to about 20 in the bottom group. With c = 5 and 10, a few
+# items at the ends get almost all the weight.
+weight_constants: [0.0, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0]
+# both: the bottom group is also weighted, with exp(-c x typicality), so the
+# least typical items count more. top: only the top group is weighted.
+weight_groups: both
+# include: all items. exclude: remove items with is_ambiguous true from
+# training and evaluation (see AMBIGUOUS_ITEMS in rosch_prompts.py).
+ambiguous: [include, exclude]
+# Evaluation prompts: never used for training. Probes are evaluated on their raw
+# activations (no baseline). Only the rows of the item's own category are used.
+eval_prompts_csv: data/processed/rosch/rosch_eval.csv
+eval_prompt_columns:
+  - rosch_eval_1
+  - rosch_eval_2
+  - rosch_eval_3
+# Permutation null: typicality shuffled inside each category, n_permutations
+# times, for these settings (keys "g<n_groups>_c<c>_<ambiguous>").
+null_settings:
+  - g3_c0_include
+  - g4_c1_exclude
+n_permutations: 200
+batch_size: 16
+device: auto
+dtype: float32
+prefix_token: "<|endoftext|>"
+seed: 0
+activation_cache_dir: outputs/activation_cache
+max_rows: null
+output_dir: outputs/probes/rosch/qwen2-5-1-5B-diff-means
+html_name: diff-means-explore.html

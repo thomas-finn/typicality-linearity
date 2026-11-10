@@ -1,0 +1,90 @@
+experiment: probes-rosch-qwen2-5-1-5B-ridge
+title: "Ridge probes over a grid of alphas on Rosch prompts: Qwen2.5-1.5B, layer 15, period token"
+model: Qwen/Qwen2.5-1.5B
+# Same data, extraction settings and evaluation prompts as
+# experiments/probes/rosch/qwen2-5-1-5B-diff-means, so all activations come
+# from the cache.
+prompts_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
+prompt_columns:
+  - rosch_example
+  - rosch_neg
+  - rosch_simple
+  - rosch_fav
+  - rosch_story_1
+  - rosch_story_2
+  - rosch_story_neg
+layers: [10, 15, 20, 25]
+positions: [period]
+probe_layer: 15
+probe_position: period
+# null is no baseline. mean_contrast: a(i, c) - mean over c' != c of a(i, c').
+baselines: [null, mean_contrast]
+# Typicality = target_sign x target. A low rating is typical.
+target: rating_zscore
+target_sign: -1
+metrics: [spearman, pearson]
+n_folds: 5
+cv_aggregate: pooled
+# Settings grid. All combinations of ridge_alphas and ambiguous are run.
+# Each alpha is fixed for all fits of its setting. Half-decade steps from 0.01
+# (almost the minimum-norm interpolating solution) to 1e8 (much larger than all
+# squared singular values, so the direction is almost Z^T y). The parent
+# experiment chose alphas from 1 to 1e6, mostly 316 to 3160.
+# "cv": alpha chosen for each fit by inner CV from ridge_cv_alphas, the method
+# of the parent experiment (experiments/probes/rosch/qwen2-5-1-5B).
+ridge_alphas:
+  - cv
+  - 0.01
+  - 0.0316
+  - 0.1
+  - 0.316
+  - 1.0
+  - 3.16
+  - 10.0
+  - 31.6
+  - 100.0
+  - 316.0
+  - 1000.0
+  - 3160.0
+  - 10000.0
+  - 31600.0
+  - 100000.0
+  - 316000.0
+  - 1000000.0
+  - 3160000.0
+  - 10000000.0
+  - 31600000.0
+  - 100000000.0
+# The same grid and inner folds as the parent experiment.
+ridge_cv_alphas: [1.0, 3.16, 10.0, 31.6, 100.0, 316.0, 1000.0, 3160.0, 10000.0, 31600.0, 100000.0, 316000.0, 1000000.0]
+ridge_inner_folds: 5
+# Standardise each feature with the mean and std of the training items, as in
+# the parent experiment. Alpha is on this scale.
+ridge_standardise: true
+# include: all items. exclude: remove items with is_ambiguous true from
+# training and evaluation (see AMBIGUOUS_ITEMS in rosch_prompts.py).
+ambiguous: [include, exclude]
+# Evaluation prompts: never used for training. Probes are evaluated on their raw
+# activations (no baseline). Only the rows of the item's own category are used.
+eval_prompts_csv: data/processed/rosch/rosch_eval.csv
+eval_prompt_columns:
+  - rosch_eval_1
+  - rosch_eval_2
+  - rosch_eval_3
+# Permutation null: typicality shuffled inside each category, n_permutations
+# times, for these settings (keys "a<alpha>_<ambiguous>"). alpha 1000 is the
+# alpha that the parent inner CV chose most often. "cv" settings are slow in
+# the null (6 times more fits).
+null_settings:
+  - a1000_include
+  - a1000_exclude
+n_permutations: 200
+batch_size: 16
+device: auto
+dtype: float32
+prefix_token: "<|endoftext|>"
+seed: 0
+activation_cache_dir: outputs/activation_cache
+max_rows: null
+output_dir: outputs/probes/rosch/qwen2-5-1-5B-ridge
+html_name: ridge-explore.html

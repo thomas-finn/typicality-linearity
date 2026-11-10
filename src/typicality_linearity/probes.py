@@ -2,10 +2,12 @@
 
 Two probe types:
 - "diff_of_means": the direction is the mean activation of the most typical
-  third of the training items minus the mean of the least typical third.
-  The score of an activation x is x . direction.
+  1/n_groups of the training items minus the mean of the least typical
+  1/n_groups (default: thirds). The means can be weighted (see
+  fit_diff_of_means). The score of an activation x is x . direction.
 - "ridge": ridge regression of typicality on standardised activations. Alpha is
-  chosen from a grid by inner cross-validation on the training items only.
+  chosen from a grid by inner cross-validation on the training items only, or
+  is fixed (setting "ridge_alpha").
 
 The target y is typicality, where a higher value is more typical.
 """
@@ -83,6 +85,38 @@ def spearman(a, b):
 METRICS = {"spearman": spearman, "pearson": pearson}
 
 
+def extreme_groups(y, n_groups):
+    """Return (least typical indices, most typical indices).
+
+    Each group has len(y) // n_groups items. Ties are put in order by position.
+    """
+    y = np.asarray(y, dtype=np.float64)
+    n_group = len(y) // n_groups
+    if n_groups < 2 or n_group == 0:
+        raise ValueError(f"Need n_groups >= 2 and {n_groups} or more items")
+    order = np.argsort(y, kind="stable")
+    return order[:n_group], order[-n_group:]
+
+
+def wilcoxon_auc(scores, y, n_groups):
+    """Return the Wilcoxon rank-sum (Mann-Whitney) AUC of the scores.
+
+    The two groups are the most and least typical len(y) // n_groups items
+    (see extreme_groups). The AUC is the probability that a most typical item
+    has a higher score than a least typical item; ties count 0.5. 0.5 is
+    chance and 1 is a perfect separation. NaN if a score is not finite.
+    """
+    scores = np.asarray(scores, dtype=np.float64)
+    if not np.all(np.isfinite(scores)):
+        return float("nan")
+    least, most = extreme_groups(y, n_groups)
+    ranks = average_ranks(np.concatenate([scores[most], scores[least]]))
+    n_most = len(most)
+    n_least = len(least)
+    u = ranks[:n_most].sum() - n_most * (n_most + 1) / 2
+    return float(u / (n_most * n_least))
+
+
 # Folds
 
 
@@ -124,15 +158,43 @@ def random_folds(n, n_folds, rng):
 # Difference of means
 
 
-def fit_diff_of_means(x, y):
+WEIGHT_GROUPS = ("both", "top")
+
+
+def group_weights(y, weight_constant):
+    """Return exp(weight_constant * y), normalised to sum to 1.
+
+    The max is subtracted before exp, so a large value does not overflow.
+    """
+    exponent = weight_constant * np.asarray(y, dtype=np.float64)
+    weights = np.exp(exponent - exponent.max())
+    return weights / weights.sum()
+
+
+def fit_diff_of_means(x, y, n_groups=3, weight_constant=0.0, weight_groups="both"):
+    """Return a difference-of-means probe.
+
+    The top group is the n // n_groups most typical items and the bottom group
+    the n // n_groups least typical items. Ties are put in order by position.
+
+    weight_constant c > 0 weights the means. y is typicality (higher is more
+    typical), so with y = -rating_zscore the weights are exp(-c * rating_zscore).
+    - top group: weight exp(c * y), so the most typical items count more
+    - bottom group: weight exp(-c * y) when weight_groups is "both", so the
+      least typical items count more. With "top", the bottom mean is not weighted.
+    c = 0 gives the unweighted difference of means.
+    """
+    if weight_groups not in WEIGHT_GROUPS:
+        raise ValueError(f"weight_groups must be one of {WEIGHT_GROUPS}")
     x = np.asarray(x, dtype=np.float64)
-    n_third = len(y) // 3
-    if n_third == 0:
-        raise ValueError("Difference of means needs 3 or more training items")
-    order = np.argsort(y, kind="stable")
-    least_typical = order[:n_third]
-    most_typical = order[-n_third:]
-    direction = x[most_typical].mean(axis=0) - x[least_typical].mean(axis=0)
+    y = np.asarray(y, dtype=np.float64)
+    least_typical, most_typical = extreme_groups(y, n_groups)
+    top_weights = group_weights(y[most_typical], weight_constant)
+    if weight_groups == "both":
+        bottom_weights = group_weights(-y[least_typical], weight_constant)
+    else:
+        bottom_weights = group_weights(y[least_typical], 0.0)
+    direction = top_weights @ x[most_typical] - bottom_weights @ x[least_typical]
     d_model = x.shape[1]
     return LinearProbe(direction, np.zeros(d_model), np.ones(d_model), 0.0)
 
@@ -209,10 +271,26 @@ def fit_probe(probe_type, x, y, settings, rng):
 
     settings: {"ridge_alphas": [...], "ridge_inner_folds": int,
                "ridge_standardise": bool}
+    If settings has "ridge_alpha" (not None), ridge uses this alpha and does no
+    inner cross-validation. "ridge_alphas" and "ridge_inner_folds" are then not
+    used.
+    Optional diff_of_means settings (default: thirds, no weighting):
+    "dom_n_groups", "dom_weight_constant", "dom_weight_groups".
     """
     if probe_type == "diff_of_means":
-        return fit_diff_of_means(x, y), None
+        probe = fit_diff_of_means(
+            x,
+            y,
+            settings.get("dom_n_groups", 3),
+            settings.get("dom_weight_constant", 0.0),
+            settings.get("dom_weight_groups", "both"),
+        )
+        return probe, None
     if probe_type == "ridge":
+        fixed = settings.get("ridge_alpha")
+        if fixed is not None:
+            alpha = float(fixed)
+            return fit_ridge(x, y, alpha, settings["ridge_standardise"]), alpha
         alphas = np.asarray(settings["ridge_alphas"], dtype=np.float64)
         alpha = choose_ridge_alpha(
             x,
