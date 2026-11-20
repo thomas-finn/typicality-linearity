@@ -78,7 +78,11 @@ import numpy as np
 import yaml
 
 from typicality_linearity.activation_source import LazyModel, get_activations
-from typicality_linearity.baselines import is_true, mean_contrast_groups
+from typicality_linearity.baselines import (
+    is_true,
+    mean_contrast,
+    mean_contrast_groups,
+)
 from typicality_linearity.global_pca_experiment import (
     ACTIVATION_FORMULAS,
     ACTIVATION_LABELS,
@@ -451,6 +455,7 @@ def load_points(
     prompt_columns=None,
     nonce_csv=None,
     types=None,
+    with_items=True,
 ):
     """Return (point rows, {prompt: {type: array (n_points, n_layers, d)}}).
 
@@ -459,10 +464,18 @@ def load_points(
     config_activation_types. "raw" is always kept, because the probes are
     scored on it. The nonce contrast uses the rows of nonce_csv (the same
     prompts with a nonce word as the category).
+
+    with_items=False: do not read the item contrast file. Only "raw" and
+    "cat_contrast" are then possible (the raw activations are the target
+    rows of the category contrast file).
     """
     wanted = list(types or config_activation_types(config))
     if "raw" not in wanted:
         wanted.append("raw")
+    if not with_items:
+        return load_cat_points(
+            config, lazy_model, metadata, cat_csv, prompt_columns, wanted
+        )
     cat_rows = read_rows(cat_csv or config["cat_contrast_csv"])
     item_rows = read_rows(item_csv or config["item_contrast_csv"])
     cat_groups = mean_contrast_groups(cat_rows)
@@ -498,6 +511,39 @@ def load_points(
         }
         del cat_values, item_values
         print(f"Loaded {prompt}: {sources}")
+    return point_rows, types_by_prompt
+
+
+def load_cat_points(config, lazy_model, metadata, cat_csv, prompt_columns, wanted):
+    """load_points without the item contrast file."""
+    allowed = ("raw", "cat_contrast")
+    unknown = [t for t in wanted if t not in allowed]
+    if unknown:
+        raise ValueError(f"Types {unknown} need the item contrast file")
+    cat_rows = read_rows(cat_csv or config["cat_contrast_csv"])
+    cat_groups = mean_contrast_groups(cat_rows)
+    targets = [target for target, _ in cat_groups]
+    point_rows = [cat_rows[target] for target in targets]
+    extraction = extraction_config(config)
+    types_by_prompt = {}
+    for prompt in prompt_columns or config["prompt_columns"]:
+        extracted, source = get_activations(
+            extraction,
+            lazy_model,
+            prompt,
+            [row[prompt] for row in cat_rows],
+            [row["item_text"] for row in cat_rows],
+        )
+        values = extracted.activations[config["position"]]
+        types = {"raw": values[targets]}
+        if "cat_contrast" in wanted:
+            types["cat_contrast"] = mean_contrast(values, cat_groups)
+        metadata["activation_sources"][prompt] = {"cat_contrast_csv": source}
+        types_by_prompt[prompt] = {
+            name: types[name].astype(np.float32) for name in wanted
+        }
+        del extracted, values
+        print(f"Loaded {prompt}: {metadata['activation_sources'][prompt]}")
     return point_rows, types_by_prompt
 
 

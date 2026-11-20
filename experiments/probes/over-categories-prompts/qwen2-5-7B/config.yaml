@@ -26,10 +26,8 @@ prompt_columns:
   - rosch_cat_first_2
 # Evaluation prompts, never used for training. Pooled over categories: one
 # extra column per prompt. Only the raw activations of the evaluation
-# prompts are used; the item contrast evaluation file is necessary for the
-# point check.
+# prompts are used (the target rows of eval_cat_contrast_csv).
 eval_cat_contrast_csv: data/processed/rosch/rosch_eval.csv
-eval_item_contrast_csv: data/processed/rosch/rosch_mean_item_contrast_eval.csv
 eval_prompt_columns: [rosch_eval_1, rosch_eval_2, rosch_eval_3]
 # Extraction settings (part of the activation cache key), the same as
 # experiments/activations/qwen2-5-7B.

@@ -487,3 +487,47 @@ def test_within_method():
     assert within_method({}) == "cv"
     assert within_method({"diagonal": "cv"}) == "cv"
     assert within_method({"diagonal": "full"}) == "in_sample"
+
+
+def test_load_points_without_items_gives_the_same_raw_and_cat(tmp_path):
+    from typicality_linearity.global_probe_experiment import load_points
+
+    cat_path = tmp_path / "cat.csv"
+    item_path = tmp_path / "item.csv"
+    write_csv(cat_path, cat_rows())
+    write_csv(item_path, item_rows())
+    config = {
+        "experiment": "test-load-points",
+        "model": "fake",
+        "cat_contrast_csv": str(cat_path),
+        "item_contrast_csv": str(item_path),
+        "prompt_columns": ["rosch_example"],
+        "layers": [1],
+        "position": "period",
+        "batch_size": 2,
+        "device": "cpu",
+        "dtype": "float32",
+        "prefix_token": None,
+        "activation_cache_dir": str(tmp_path / "cache"),
+    }
+    model = FakeModel({"layers": [1]}, {})
+    types = ["raw", "cat_contrast"]
+    rows_a, values_a = load_points(
+        config, model, {"activation_sources": {}}, types=types
+    )
+    rows_b, values_b = load_points(
+        config, model, {"activation_sources": {}}, types=types, with_items=False
+    )
+    assert rows_a == rows_b
+    for name in types:
+        np.testing.assert_array_equal(
+            values_a["rosch_example"][name], values_b["rosch_example"][name]
+        )
+    with pytest.raises(ValueError, match="item contrast file"):
+        load_points(
+            config,
+            model,
+            {"activation_sources": {}},
+            types=["item_contrast"],
+            with_items=False,
+        )

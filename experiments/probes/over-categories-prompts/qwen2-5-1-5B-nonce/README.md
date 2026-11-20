@@ -14,8 +14,8 @@ The mean category contrast subtracts the mean over the 9 other real categories, 
 
 - The same as `../qwen2-5-1-5B/`: the 565 rated pairs from `data/processed/rosch/rosch_mean_cat_contrast.csv`, the 15 training prompt formats and the 3 evaluation prompts (`rosch_eval_1` to `rosch_eval_3`, from `data/processed/rosch/rosch_eval.csv`).
 - `data/processed/rosch/rosch_nonce.csv`: the nonce prompts in the 15 training formats (1,695 rows), as in the per-category nonce experiment.
-- `data/processed/rosch/rosch_nonce_eval.csv` (new): the nonce prompts in the 3 evaluation formats (1,695 rows), for the nonce contrast of the evaluation prompts. Made by `write_nonce_eval_suite` in `rosch_prompts.py` (`scripts/make_rosch_prompts.py`).
-- `data/processed/rosch/rosch_mean_item_contrast.csv` and `rosch_mean_item_contrast_eval.csv` are read for the point check only; the item contrast types are not used.
+- `data/processed/rosch/rosch_nonce_eval.csv` (new): the nonce prompts in the 3 evaluation formats (1,695 rows), for the nonce contrast of the evaluation prompts. Removed on 2026-11-20, with `write_nonce_eval_suite`: the evaluation prompts use only the raw activations, so the file is not read.
+- `data/processed/rosch/rosch_mean_item_contrast.csv` is read for the point check only; the item contrast types are not used. Runs before 2026-11-20 also read `rosch_mean_item_contrast_eval.csv` for the point check of the evaluation prompts. Since 2026-11-20 that file is removed: the evaluation prompts use only the raw activations, which come from the target rows of `rosch_eval.csv`. The file was used only for a point check, so the results do not change.
 - Ambiguous items: 34 core, 41 extended.
 - Nonce prompt change (2026-11-18): for the 28 plural items, the nonce prompts now say "Marbles are typical wugawrars." in place of "Marbles are a typical wugawrar." (84 rows in `rosch_typ_frame_1`, `rosch_typ_frame_3`, `rosch_hedge_1` to `rosch_hedge_3`, `rosch_eval_3`). See `data/processed/rosch/README.md`. Runs before this change used the old prompts. The cache key includes the prompt texts, so the next run extracts the changed nonce columns again.
 

@@ -345,22 +345,6 @@ def test_nonce_prompts():
     assert tennis["rosch_hedge_1"] == "Technically, tennis is a wugawrar."
 
 
-def test_nonce_eval_prompts():
-    from typicality_linearity.rosch_prompts import (
-        EVAL_TEMPLATES,
-        build_nonce_prompts,
-    )
-
-    ratings = read_ratings(RATINGS_PATH)
-    rows = build_nonce_prompts(ratings, templates=EVAL_TEMPLATES)
-    assert len(rows) == 3 * len(ratings)
-    assert set(EVAL_TEMPLATES) <= set(rows[0])
-    assert not set(TEMPLATES) & set(rows[0])
-    doll = next(r for r in rows if (r["item"], r["category"]) == ("doll", "toy"))
-    assert doll["rosch_eval_1"] == "A doll is a kind of wugawrar."
-    assert doll["rosch_eval_3"].endswith("a doll is a wugawrar, do you think that.")
-
-
 def test_nonce_prompts_agree_with_plural_items():
     from typicality_linearity.rosch_prompts import (
         EVAL_TEMPLATES,

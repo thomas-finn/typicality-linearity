@@ -7,7 +7,6 @@ prompt_csvs:
   - data/processed/rosch/rosch_mean_cat_contrast.csv
   - data/processed/rosch/rosch_mean_item_contrast.csv
   - data/processed/rosch/rosch_eval.csv
-  - data/processed/rosch/rosch_mean_item_contrast_eval.csv
 # all: every column that starts with "rosch_". Or give a list of column names.
 prompt_columns: all
 # Target file: source file. Every prompt of the item contrast file is also in
@@ -15,7 +14,6 @@ prompt_columns: all
 # contrast entries, without the model.
 derive_from:
   data/processed/rosch/rosch_mean_item_contrast.csv: data/processed/rosch/rosch_mean_cat_contrast.csv
-  data/processed/rosch/rosch_mean_item_contrast_eval.csv: data/processed/rosch/rosch_eval.csv
 # Extraction settings. These are part of the activation cache key.
 # Qwen2.5-7B has 28 blocks, the same as Qwen2.5-1.5B, so the layers are the same.
 # Layer L is the residual stream after transformer block L (hidden_states[L]).

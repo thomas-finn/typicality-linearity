@@ -8,7 +8,6 @@ prompt_csvs:
   - data/processed/rosch/rosch_mean_cat_contrast_extended.csv
   - data/processed/rosch/rosch_mean_item_contrast.csv
   - data/processed/rosch/rosch_eval.csv
-  - data/processed/rosch/rosch_mean_item_contrast_eval.csv
 # all: every column that starts with "rosch_". Or give a list of column names.
 prompt_columns: all
 # Target file: source file. Every prompt of the item contrast file is also in
@@ -16,7 +15,6 @@ prompt_columns: all
 # contrast entries, without the model.
 derive_from:
   data/processed/rosch/rosch_mean_item_contrast.csv: data/processed/rosch/rosch_mean_cat_contrast.csv
-  data/processed/rosch/rosch_mean_item_contrast_eval.csv: data/processed/rosch/rosch_eval.csv
 # Target file: source file. The rows that are in the source are copied from
 # its cached entries; only the other rows are extracted with the model. The
 # extended file has the 10 rated categories of the category contrast file and

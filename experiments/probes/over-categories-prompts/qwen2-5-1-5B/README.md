@@ -8,7 +8,7 @@ Does one difference-of-means probe trained on all categories together grade typi
 
 The same as `../../per-category-prompt/qwen2-5-1-5B/`: the 565 rated pairs from `data/processed/rosch/rosch_mean_cat_contrast.csv` and `data/processed/rosch/rosch_mean_item_contrast.csv` (seed 0), the 15 training prompt formats, and the cached activations (layers 10, 15, 20, 25, period token).
 
-Evaluation prompts (page 1 only, never used for training): `rosch_eval_1` to `rosch_eval_3` from `data/processed/rosch/rosch_eval.csv` (raw and category contrast) and `data/processed/rosch/rosch_mean_item_contrast_eval.csv` (item contrast; the same contrast items as the training file, seed 0). The item contrast evaluation activations are derived from the `rosch_eval.csv` cache entries (activation run `20261108T202641Z`).
+Evaluation prompts (page 1 only, never used for training): `rosch_eval_1` to `rosch_eval_3` from `data/processed/rosch/rosch_eval.csv` (raw and category contrast) and `data/processed/rosch/rosch_mean_item_contrast_eval.csv` (item contrast; the same contrast items as the training file, seed 0). The item contrast evaluation activations are derived from the `rosch_eval.csv` cache entries (activation run `20261108T202641Z`). Since 2026-11-20 this file is removed: the evaluation prompts use only the raw activations, which come from the target rows of `rosch_eval.csv`. The file was used only for a point check, so the results do not change.
 
 ## Configuration
 

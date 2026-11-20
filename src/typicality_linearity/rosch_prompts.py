@@ -588,17 +588,14 @@ def nonce_category_forms(word):
     return CategoryForms(word, f"{indefinite_article(word)} {word}", f"{word}s")
 
 
-def build_nonce_prompts(rows, words=NONCE_CATEGORIES, templates=None):
+def build_nonce_prompts(rows, words=NONCE_CATEGORIES):
     """Return the rows of build_prompts, one row for each nonce word.
 
-    templates defaults to TEMPLATES; EVAL_TEMPLATES gives the evaluation
-    formats. For each rated row there is one row for each word in `words`, in that
+    For each rated row there is one row for each word in `words`, in that
     order. `category` is still the rated category: the item keeps its grammar
     from it ("tennis" has no article). `nonce_category` is the word in the
     prompts. There are no rating columns.
     """
-    if templates is None:
-        templates = TEMPLATES
     prompt_rows = []
     for row in rows:
         item = item_phrase(row["item"], row["category"])
@@ -614,7 +611,7 @@ def build_nonce_prompts(rows, words=NONCE_CATEGORIES, templates=None):
                 ),
                 "is_ambiguous_core": is_ambiguous_core(row["item"], row["category"]),
             }
-            for name, template in templates.items():
+            for name, template in TEMPLATES.items():
                 prompt_row[name] = template(item, cat)
             prompt_rows.append(prompt_row)
     return prompt_rows
@@ -848,19 +845,6 @@ def write_mean_item_contrast_suite(ratings_path, out_path, seed):
     return path
 
 
-def write_mean_item_contrast_eval_suite(ratings_path, out_path, seed):
-    """The item contrast layout with the evaluation templates.
-
-    The random contrast items do not depend on the templates, so with the same
-    seed they are the same as in the item contrast file of TEMPLATES.
-    """
-    path = Path(out_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rows = read_ratings(ratings_path)
-    write_prompts(build_mean_item_contrast_prompts(rows, seed, EVAL_TEMPLATES), path)
-    return path
-
-
 def write_eval_suite(ratings_path, out_path):
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -872,13 +856,4 @@ def write_nonce_suite(ratings_path, out_path):
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_prompts(build_nonce_prompts(read_ratings(ratings_path)), path)
-    return path
-
-
-def write_nonce_eval_suite(ratings_path, out_path):
-    """The nonce prompts with the evaluation templates."""
-    path = Path(out_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rows = read_ratings(ratings_path)
-    write_prompts(build_nonce_prompts(rows, templates=EVAL_TEMPLATES), path)
     return path

@@ -78,10 +78,7 @@ In `rosch_mean_item_contrast.csv` the category is fixed and the item changes. Fo
 
 ## Item contrast evaluation prompts
 
-`rosch_mean_item_contrast_eval.csv` has the layout of `rosch_mean_item_contrast.csv` (5650 rows, 10 per pair) with the evaluation templates (`rosch_eval_1` to `rosch_eval_3`) in place of the training templates.
-
- - `scripts/make_rosch_prompts.py` creates this file together with the other files, with the same `--seed` (default 0).
- - The contrast items are the same as in `rosch_mean_item_contrast.csv`: the random choice does not depend on the templates.
+Removed on 2026-11-20. `rosch_mean_item_contrast_eval.csv` had the layout of `rosch_mean_item_contrast.csv` (5650 rows, 10 per pair) with the evaluation templates (`rosch_eval_1` to `rosch_eval_3`). The evaluation prompts use only the raw activations, which come from the target rows of `rosch_eval.csv`, so this file is not necessary.
  - Each prompt is also a row in `rosch_eval.csv`, so its activations can be derived from the cache (see `activation_extraction.py`, `derive_from`).
 
 ## Extended mean category contrast
@@ -106,10 +103,10 @@ In `rosch_mean_item_contrast.csv` the category is fixed and the item changes. Fo
 - Example: "A doll is an example of a wugawrar.", "The problem with a doll is that he really did not like njonjoburas.", "One kind of duplambi is a doll."
 - The nonce words are count nouns in all prompts: "a wugawrar" after "an example of", "wugawrars" for the general form (`rosch_story_1`, `rosch_story_2`), "a typical wugawrar". This is also true for the rows of the mass categories clothing and furniture.
 - The item keeps the grammar of its rated category ("Tennis is an example of a wugawrar.", "Marbles are my favourite kind of wugawrar.").
-- After a plural item, the category after "are" is plural, so the verb and the noun agree: "Marbles are typical wugawrars.", "Technically, pants are wugawrars.", "Marbles are wugawrars, sort of." (`rosch_typ_frame_1`, `rosch_typ_frame_3`, `rosch_hedge_1` to `rosch_hedge_3`, and `rosch_eval_3` in `rosch_nonce_eval.csv`; 28 plural items, 84 rows). "An example of" and "a kind of" keep the singular ("Marbles are an example of a wugawrar."). Before 2026-11-18 these prompts had "are a wugawrar". The real category prompts have the same rule (see "Plural items" below).
+- After a plural item, the category after "are" is plural, so the verb and the noun agree: "Marbles are typical wugawrars.", "Technically, pants are wugawrars.", "Marbles are wugawrars, sort of." (`rosch_typ_frame_1`, `rosch_typ_frame_3`, `rosch_hedge_1` to `rosch_hedge_3`; 28 plural items, 84 rows). "An example of" and "a kind of" keep the singular ("Marbles are an example of a wugawrar."). Before 2026-11-18 these prompts had "are a wugawrar". The real category prompts have the same rule (see "Plural items" below).
 - Columns: `item`, `category` (the rated category; it is not in the prompts), `nonce_category` (the nonce word in the prompts), `item_text`, `is_ambiguous_extended`, `is_ambiguous_core`, then one column for each prompt format. There are no `rating` and `rating_zscore` columns; join on `item` and `category` to get them from `rosch_prompts.csv`.
-- The evaluation formats (`rosch_eval_*`) are not in this file, because they are not in `rosch_prompts.csv`. They are in `rosch_nonce_eval.csv`: the same rows (1,695, the same order), with the columns `rosch_eval_1` to `rosch_eval_3` in place of the 15 training formats ("A doll is a kind of wugawrar.").
-- Made by `scripts/make_rosch_prompts.py` (`build_nonce_prompts` in `rosch_prompts.py`; `write_nonce_eval_suite` for `rosch_nonce_eval.csv`).
+- The evaluation formats (`rosch_eval_*`) are not in this file, because they are not in `rosch_prompts.csv`. Until 2026-11-20 they were in `rosch_nonce_eval.csv`. That file is removed: the evaluation prompts use only the raw activations, so they need no nonce prompts.
+- Made by `scripts/make_rosch_prompts.py` (`build_nonce_prompts` in `rosch_prompts.py`).
 
 ## Plural items
 

@@ -8,7 +8,8 @@ global_probe_experiment.py.
 Baselines are used only for training. The probes are trained on the
 activations of the activation type, and all scores (also on the evaluation
 prompts) are computed on the raw activations. For the evaluation prompts,
-only the raw activations are loaded.
+only the raw activations are loaded, from `eval_cat_contrast_csv` (the
+target rows).
 
 Here the probes are pooled:
 
@@ -147,10 +148,8 @@ def load_config(path):
     config = load_probe_config(path)
     if config.get("over_categories_groups") not in GROUP_MODES:
         raise ValueError(f"over_categories_groups must be one of {GROUP_MODES}")
-    if config.get("eval_prompt_columns"):
-        for key in ("eval_cat_contrast_csv", "eval_item_contrast_csv"):
-            if not config.get(key):
-                raise ValueError(f"eval_prompt_columns needs {key}")
+    if config.get("eval_prompt_columns") and not config.get("eval_cat_contrast_csv"):
+        raise ValueError("eval_prompt_columns needs eval_cat_contrast_csv")
     return config
 
 
@@ -429,9 +428,9 @@ def run(config, config_path):
                 lazy_model,
                 metadata,
                 config["eval_cat_contrast_csv"],
-                config["eval_item_contrast_csv"],
-                eval_prompts,
+                prompt_columns=eval_prompts,
                 types=["raw"],
+                with_items=False,
             )
             check_same_rows(point_rows, eval_rows)
 

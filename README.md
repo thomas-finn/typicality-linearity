@@ -9,7 +9,7 @@ A classic example is both robins and penguins are classified are birds, but robi
 
 ## Data
 
-Our primary dataset is from Rosch (1975) (link to paper here) that contains item-category pairs over ten categories.
+Our primary dataset is from Rosch (1975) (link to paper [here](https://psycnet.apa.org/record/1976-00172-001)) that contains item-category pairs over ten categories.
 Each item-category pair was rated for how typical it is for that category by a group of humans and we take the mean human score as our typicality score.
 
 From the item-category pairs we then create a suite of prompts varying in format and length that we use to test if concept typicality is linearly encoded at intermediate layers of an LLM.
@@ -24,13 +24,15 @@ There are three main types of experiments that we will perform using the suite o
  - *Probes* to test if typicality is linearly encoded.
  - *Steering* to test if any typicality directions discovered are causal.
 
-Outputs from experiments and activations are stored in [`outputs`](./outputs/) but this is not comm
+Outputs from experiments and activations are stored in [`outputs`](./outputs/) but this is not committed to git due to large file sizes. This will cause some html output files to not render properly unless the required scripts are ran locally.
+
+Activations are extracted using the scripts in [`experiments/`]
 
 ### PCA analysis
 
 As a preliminary visual aid to our experiments, we visualise the first few principal components of activations extracted from our suite of prompts created in [`data`](./data/).
 
-See [`experiments/pca`](./experiments/pca/) for more details.
+See [`experiments/pca`](./experiments/pca/) for more details. 
 
 ### Probing
 

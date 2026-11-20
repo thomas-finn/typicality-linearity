@@ -6,7 +6,7 @@ The same question as `../qwen2-5-1-5B/README.md`, for Qwen2.5-7B: does one diffe
 
 ## Dataset
 
-The same as `../qwen2-5-1-5B/README.md`: 565 rated pairs, 15 training prompt formats, and the evaluation prompts `rosch_eval_1` to `rosch_eval_3` (`rosch_eval.csv` and `rosch_mean_item_contrast_eval.csv`). Activations from the cache made by `experiments/activations/qwen2-5-7B/` (run `20261110T145109Z`, `outputs/activation_cache/Qwen2.5-7B/`, layers 10, 15, 20, 25, period token, float32). The item contrast evaluation entries are derived from the `rosch_eval.csv` entries, as for 1.5B.
+The same as `../qwen2-5-1-5B/README.md`: 565 rated pairs, 15 training prompt formats, and the evaluation prompts `rosch_eval_1` to `rosch_eval_3` (`rosch_eval.csv` and `rosch_mean_item_contrast_eval.csv`). Activations from the cache made by `experiments/activations/qwen2-5-7B/` (run `20261110T145109Z`, `outputs/activation_cache/Qwen2.5-7B/`, layers 10, 15, 20, 25, period token, float32). The item contrast evaluation entries are derived from the `rosch_eval.csv` entries, as for 1.5B. Since 2026-11-20 this file is removed: the evaluation prompts use only the raw activations, which come from the target rows of `rosch_eval.csv`. The file was used only for a point check, so the results do not change.
 
 ## Configuration
 
