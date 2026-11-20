@@ -53,6 +53,38 @@ CATEGORY_FORMS = {
     "weapon": CategoryForms("weapon", "a weapon", "weapons"),
 }
 
+# Categories with no rated items. They are only used as extra contrast
+# categories in the extended mean category contrast file, so the contrast
+# mean covers more of the category space (animals, plants, artifacts, food,
+# people, abstract). They are count nouns, and none of them is a supercategory
+# of a rated category (as "animal" is of "bird").
+EXTENDED_CATEGORY_FORMS = {
+    "fish": CategoryForms("fish", "a fish", "fish"),
+    "insect": CategoryForms("insect", "an insect", "insects"),
+    "flower": CategoryForms("flower", "a flower", "flowers"),
+    "tree": CategoryForms("tree", "a tree", "trees"),
+    "musical instrument": CategoryForms(
+        "musical instrument", "a musical instrument", "musical instruments"
+    ),
+    "building": CategoryForms("building", "a building", "buildings"),
+    "drink": CategoryForms("drink", "a drink", "drinks"),
+    "occupation": CategoryForms("occupation", "an occupation", "occupations"),
+    "emotion": CategoryForms("emotion", "an emotion", "emotions"),
+    "illness": CategoryForms("illness", "an illness", "illnesses"),
+}
+
+# Rated items that are also members of an extended category, keyed by
+# (extended category, raw item). Chosen by hand on 2026-11-18. The item keeps
+# the meaning of its rated category; this flag is for the second meaning.
+PLAUSIBLE_EXTENDED_MEMBERS = {
+    ("fish", "skate"),  # rated in vehicle
+    ("insect", "cricket"),  # rated in sport
+    ("flower", "dandelion"),  # rated in vegetable
+    ("musical instrument", "drum"),  # rated in toy
+    ("musical instrument", "piano"),  # rated in furniture
+    ("drink", "squash"),  # rated in sport, vegetable, fruit; a fruit drink
+}
+
 # Categories where items are activities and take no determiner by default.
 CATEGORIES_WITHOUT_ARTICLE = {"sport"}
 
@@ -144,10 +176,13 @@ ITEM_OVERRIDES = {
 }
 
 
-# Items whose word, as written in the prompt, has a common second meaning that
-# is not the meaning rated in the category. Keyed by (category, raw item). The
-# value is the other meaning. Items that are only weak members of the category
-# with the same meaning ("car" as a toy, "hammer" as a weapon) are not ambiguous.
+# Candidate ambiguous items, from a first review: the word, as written in the
+# prompt, has a second meaning that is not the meaning rated in the category.
+# Keyed by (category, raw item). The value is the other meaning. Items that are
+# only weak members of the category with the same meaning ("car" as a toy,
+# "hammer" as a weapon) are not ambiguous.
+# This list is a record of the review and of each second meaning. The CSV flags
+# use AMBIGUOUS_CORE and AMBIGUOUS_EXTENDED, which are subsets of this list.
 AMBIGUOUS_ITEMS = {
     # bird
     ("bird", "bat"): "baseball bat",
@@ -234,49 +269,75 @@ AMBIGUOUS_ITEMS = {
 }
 
 
-# Items in AMBIGUOUS_ITEMS that are not ambiguous under the lenient rule. The
-# rated meaning is the most common meaning of the word in a category context
-# ("duck" as a bird, "apple" as a fruit). Chosen by hand, item by item.
-NOT_AMBIGUOUS_LENIENT = {
-    ("bird", "duck"),
+# Items in AMBIGUOUS_ITEMS that are ambiguous under the core rule: the second
+# meaning is common, also in a category context. Chosen by hand on 2026-11-12
+# (manual review). A word in the list is core ambiguous in all its categories.
+AMBIGUOUS_CORE = {
+    # bird
+    ("bird", "bat"),
+    ("bird", "crane"),
+    ("bird", "cardinal"),
     ("bird", "turkey"),
-    ("bird", "dove"),
-    ("toy", "ball"),
-    ("sport", "fencing"),
-    ("sport", "polo"),
-    ("vegetable", "pepper"),
-    ("fruit", "apple"),
-    ("tool", "saw"),
-    ("tool", "nail"),
-    ("tool", "wood"),
-    ("clothing", "suit"),
-    ("clothing", "watch"),
-    ("clothing", "cape"),
-    ("clothing", "jumper"),
-    ("vehicle", "train"),
-    ("vehicle", "jet"),
-    ("vehicle", "skate"),
-    ("vehicle", "subway"),
-    ("furniture", "chest"),
-    ("furniture", "counter"),
-    ("furniture", "rocker"),
-    ("furniture", "cabinet"),
-    ("furniture", "stool"),
-    ("furniture", "ottoman"),
-    ("furniture", "picture"),
-    ("weapon", "club"),
-    ("weapon", "bow"),
+    # toy
+    ("toy", "block"),
+    ("toy", "bat"),
+    ("toy", "kite"),
+    ("toy", "jacks"),
+    # sport
+    ("sport", "squash"),
+    ("sport", "cricket"),
+    ("sport", "pool"),
+    ("sport", "track"),
+    # vegetable
+    ("vegetable", "squash"),
+    # fruit
+    ("fruit", "date"),
+    ("fruit", "nut"),
+    ("fruit", "squash"),
+    # tool
+    ("tool", "plane"),
+    ("tool", "file"),
+    ("tool", "ruler"),
+    ("tool", "level"),
+    ("tool", "square"),
+    ("tool", "nut"),
+    ("tool", "crane"),
+    # vehicle
+    ("vehicle", "tank"),
+    ("vehicle", "trailer"),
+    # furniture
+    ("furniture", "bureau"),
+    ("furniture", "bar"),
+    ("furniture", "vanity"),
+    ("furniture", "buffet"),
+    ("furniture", "fan"),
+    # weapon
+    ("weapon", "mortar"),
+    ("weapon", "blackjack"),
+    ("weapon", "tank"),
+    ("weapon", "gas"),
 }
 
 
-def is_ambiguous(item, category):
-    return (category, item) in AMBIGUOUS_ITEMS
+# AMBIGUOUS_CORE and the items where the second meaning is less common in a
+# category context. Chosen by hand on 2026-11-12 (manual review).
+AMBIGUOUS_EXTENDED = AMBIGUOUS_CORE | {
+    ("bird", "lark"),
+    ("clothing", "ring"),
+    ("furniture", "cabinet"),
+    ("furniture", "chest"),
+    ("furniture", "ottoman"),
+    ("furniture", "stool"),
+    ("weapon", "club"),
+}
 
 
-def is_ambiguous_lenient(item, category):
-    if (category, item) in NOT_AMBIGUOUS_LENIENT:
-        return False
-    return is_ambiguous(item, category)
+def is_ambiguous_extended(item, category):
+    return (category, item) in AMBIGUOUS_EXTENDED
+
+
+def is_ambiguous_core(item, category):
+    return (category, item) in AMBIGUOUS_CORE
 
 
 def indefinite_article(text):
@@ -349,9 +410,26 @@ def category_with_adjective(cat, adjective):
     return f"{indefinite_article(adjective)} {adjective} {cat.bare}"
 
 
+def category_predicate(item, cat, adjective=None):
+    """Return the category after "ITEM is" or "ITEM are".
+
+    "a toy", "a typical toy", "clothing", "typical clothing". After a plural
+    item, a count category takes its plural form, so the verb and the noun
+    agree: "Marbles are toys.", "Marbles are typical toys."
+    """
+    is_count = cat.with_determiner != cat.bare
+    if item.plural and is_count:
+        if adjective is None:
+            return cat.general
+        return f"{adjective} {cat.general}"
+    if adjective is None:
+        return cat.with_determiner
+    return category_with_adjective(cat, adjective)
+
+
 def prompt_typ_frame_1(item, cat):
     subject = capitalise_first(item.with_determiner())
-    return f"{subject} {item.verb_be()} {category_with_adjective(cat, 'typical')}."
+    return f"{subject} {item.verb_be()} {category_predicate(item, cat, 'typical')}."
 
 
 def prompt_typ_frame_2(item, cat):
@@ -361,25 +439,26 @@ def prompt_typ_frame_2(item, cat):
 
 def prompt_typ_frame_3(item, cat):
     subject = capitalise_first(item.with_determiner())
-    return f"{subject} {item.verb_be()} {category_with_adjective(cat, 'unusual')}."
+    return f"{subject} {item.verb_be()} {category_predicate(item, cat, 'unusual')}."
 
 
 def prompt_hedge_1(item, cat):
     return (
-        f"Technically, {item.with_determiner()} {item.verb_be()} {cat.with_determiner}."
+        f"Technically, {item.with_determiner()} {item.verb_be()} "
+        f"{category_predicate(item, cat)}."
     )
 
 
 def prompt_hedge_2(item, cat):
     return (
         f"Strictly speaking, {item.with_determiner()} {item.verb_be()} "
-        f"{cat.with_determiner}."
+        f"{category_predicate(item, cat)}."
     )
 
 
 def prompt_hedge_3(item, cat):
     subject = capitalise_first(item.with_determiner())
-    return f"{subject} {item.verb_be()} {cat.with_determiner}, sort of."
+    return f"{subject} {item.verb_be()} {category_predicate(item, cat)}, sort of."
 
 
 def prompt_cat_first_1(item, cat):
@@ -431,7 +510,7 @@ def prompt_eval_2(item, cat):
 def prompt_eval_3(item, cat):
     return (
         "Slow down there, I do not think that "
-        f"{item.with_determiner()} {item.verb_be()} {cat.with_determiner}, "
+        f"{item.with_determiner()} {item.verb_be()} {category_predicate(item, cat)}, "
         "do you think that."
     )
 
@@ -489,8 +568,10 @@ def build_prompts(rows):
             "rating": row["rating"],
             "rating_zscore": row["rating_zscore"],
             "item_text": item.text,
-            "is_ambiguous_strict": is_ambiguous(row["item"], row["category"]),
-            "is_ambiguous_lenient": is_ambiguous_lenient(row["item"], row["category"]),
+            "is_ambiguous_extended": is_ambiguous_extended(
+                row["item"], row["category"]
+            ),
+            "is_ambiguous_core": is_ambiguous_core(row["item"], row["category"]),
         }
         for name, template in TEMPLATES.items():
             prompt_row[name] = template(item, cat)
@@ -498,10 +579,53 @@ def build_prompts(rows):
     return prompt_rows
 
 
-def build_mean_cat_contrast_prompts(rows, templates=None):
+# Made-up words with no meaning, used in place of the category name. They are
+# count nouns: "a wugawrar", "wugawrars".
+NONCE_CATEGORIES = ("wugawrar", "njonjobura", "duplambi")
+
+
+def nonce_category_forms(word):
+    return CategoryForms(word, f"{indefinite_article(word)} {word}", f"{word}s")
+
+
+def build_nonce_prompts(rows, words=NONCE_CATEGORIES, templates=None):
+    """Return the rows of build_prompts, one row for each nonce word.
+
+    templates defaults to TEMPLATES; EVAL_TEMPLATES gives the evaluation
+    formats. For each rated row there is one row for each word in `words`, in that
+    order. `category` is still the rated category: the item keeps its grammar
+    from it ("tennis" has no article). `nonce_category` is the word in the
+    prompts. There are no rating columns.
+    """
+    if templates is None:
+        templates = TEMPLATES
+    prompt_rows = []
+    for row in rows:
+        item = item_phrase(row["item"], row["category"])
+        for word in words:
+            cat = nonce_category_forms(word)
+            prompt_row = {
+                "item": row["item"],
+                "category": row["category"],
+                "nonce_category": word,
+                "item_text": item.text,
+                "is_ambiguous_extended": is_ambiguous_extended(
+                    row["item"], row["category"]
+                ),
+                "is_ambiguous_core": is_ambiguous_core(row["item"], row["category"]),
+            }
+            for name, template in templates.items():
+                prompt_row[name] = template(item, cat)
+            prompt_rows.append(prompt_row)
+    return prompt_rows
+
+
+def build_mean_cat_contrast_prompts(rows, templates=None, categories=None):
     """Return one row per item and category, for all categories.
 
     templates: {column name: template}. The default is TEMPLATES.
+    categories: {name: CategoryForms}, in prompt order. The default is
+    CATEGORY_FORMS.
 
     The item keeps the grammar of the category it was rated in
     (`item_category`). `category` is the category in the prompt.
@@ -509,12 +633,14 @@ def build_mean_cat_contrast_prompts(rows, templates=None):
     `rating_zscore` are None when `is_item_category` is false.
     `is_rated_member` is true when the raw data has a rating for the item in
     `category`, for example "tomato" in both "fruit" and "vegetable".
-    `is_ambiguous_strict` and `is_ambiguous_lenient` are for the item in
-    `item_category` (see AMBIGUOUS_ITEMS), so they are the same for all rows of
+    `is_ambiguous_extended` and `is_ambiguous_core` are for the item in
+    `item_category` (see AMBIGUOUS_CORE and AMBIGUOUS_EXTENDED), so they are the same for all rows of
     the item.
     """
     if templates is None:
         templates = TEMPLATES
+    if categories is None:
+        categories = CATEGORY_FORMS
     rated_pairs = set()
     for row in rows:
         rated_pairs.add((row["item"].lower(), row["category"]))
@@ -522,7 +648,7 @@ def build_mean_cat_contrast_prompts(rows, templates=None):
     prompt_rows = []
     for row in rows:
         item = item_phrase(row["item"], row["category"])
-        for category, cat in CATEGORY_FORMS.items():
+        for category, cat in categories.items():
             is_item_category = category == row["category"]
             rating = None
             rating_zscore = None
@@ -538,14 +664,47 @@ def build_mean_cat_contrast_prompts(rows, templates=None):
                 "category": category,
                 "is_item_category": is_item_category,
                 "is_rated_member": (row["item"].lower(), category) in rated_pairs,
-                "is_ambiguous_strict": is_ambiguous(row["item"], row["category"]),
-                "is_ambiguous_lenient": is_ambiguous_lenient(
+                "is_ambiguous_extended": is_ambiguous_extended(
                     row["item"], row["category"]
                 ),
+                "is_ambiguous_core": is_ambiguous_core(row["item"], row["category"]),
             }
             for name, template in templates.items():
                 prompt_row[name] = template(item, cat)
             prompt_rows.append(prompt_row)
+    return prompt_rows
+
+
+def build_mean_cat_contrast_extended_prompts(rows, templates=None):
+    """Return the mean category contrast rows with 20 categories.
+
+    For each item: the rows of build_mean_cat_contrast_prompts (the 10 rated
+    categories, in the same order), then one row for each category in
+    EXTENDED_CATEGORY_FORMS. Two more columns:
+    - is_extended_category: true for the 10 categories with no rated items
+    - is_plausible_member: true when the item is a member of the prompt
+      category in a second meaning (PLAUSIBLE_EXTENDED_MEMBERS), for example
+      "drum" in "musical instrument". False for the 10 rated categories; use
+      is_rated_member for them.
+    """
+    categories = {**CATEGORY_FORMS, **EXTENDED_CATEGORY_FORMS}
+    base_rows = build_mean_cat_contrast_prompts(rows, templates, categories)
+    prompt_rows = []
+    for base in base_rows:
+        prompt_row = {}
+        for name, value in base.items():
+            if name in (templates or TEMPLATES):
+                continue
+            prompt_row[name] = value
+        category = base["category"]
+        prompt_row["is_extended_category"] = category in EXTENDED_CATEGORY_FORMS
+        prompt_row["is_plausible_member"] = (
+            category,
+            base["item"],
+        ) in PLAUSIBLE_EXTENDED_MEMBERS
+        for name in templates or TEMPLATES:
+            prompt_row[name] = base[name]
+        prompt_rows.append(prompt_row)
     return prompt_rows
 
 
@@ -566,7 +725,7 @@ def build_mean_item_contrast_prompts(rows, seed, templates=None):
     keeps the grammar of the category it was rated in. `rating` and
     `rating_zscore` are for the anchor pair, and are None when `is_anchor` is
     false (a contrast item has no rating in `category`).
-    `is_ambiguous_strict` and `is_ambiguous_lenient` are for the anchor pair,
+    `is_ambiguous_extended` and `is_ambiguous_core` are for the anchor pair,
     so they are the same for all rows of the group. The
     `prompt_item_is_ambiguous_*` columns are for the prompt item in
     `prompt_item_category`.
@@ -623,12 +782,14 @@ def build_mean_item_contrast_prompts(rows, seed, templates=None):
                 "prompt_item_category": prompt_item_category,
                 "item_text": item.text,
                 "is_anchor": is_anchor,
-                "is_ambiguous_strict": is_ambiguous(anchor["item"], category),
-                "is_ambiguous_lenient": is_ambiguous_lenient(anchor["item"], category),
-                "prompt_item_is_ambiguous_strict": is_ambiguous(
+                "is_ambiguous_extended": is_ambiguous_extended(
+                    anchor["item"], category
+                ),
+                "is_ambiguous_core": is_ambiguous_core(anchor["item"], category),
+                "prompt_item_is_ambiguous_extended": is_ambiguous_extended(
                     prompt_item, prompt_item_category
                 ),
-                "prompt_item_is_ambiguous_lenient": is_ambiguous_lenient(
+                "prompt_item_is_ambiguous_core": is_ambiguous_core(
                     prompt_item, prompt_item_category
                 ),
             }
@@ -671,6 +832,14 @@ def write_mean_cat_contrast_suite(ratings_path, out_path):
     return path
 
 
+def write_mean_cat_contrast_extended_suite(ratings_path, out_path):
+    path = Path(out_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = read_ratings(ratings_path)
+    write_prompts(build_mean_cat_contrast_extended_prompts(rows), path)
+    return path
+
+
 def write_mean_item_contrast_suite(ratings_path, out_path, seed):
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -696,4 +865,20 @@ def write_eval_suite(ratings_path, out_path):
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     write_prompts(build_eval_prompts(read_ratings(ratings_path)), path)
+    return path
+
+
+def write_nonce_suite(ratings_path, out_path):
+    path = Path(out_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_prompts(build_nonce_prompts(read_ratings(ratings_path)), path)
+    return path
+
+
+def write_nonce_eval_suite(ratings_path, out_path):
+    """The nonce prompts with the evaluation templates."""
+    path = Path(out_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = read_ratings(ratings_path)
+    write_prompts(build_nonce_prompts(rows, templates=EVAL_TEMPLATES), path)
     return path

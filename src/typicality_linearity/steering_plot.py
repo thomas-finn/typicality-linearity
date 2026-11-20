@@ -18,7 +18,7 @@ import html
 import json
 from collections import defaultdict
 
-from typicality_linearity.pca_plot import PLOTLY_URL
+from typicality_linearity.global_pca_plot import PLOTLY_URL
 
 N_TABLE_TOKENS = 3
 

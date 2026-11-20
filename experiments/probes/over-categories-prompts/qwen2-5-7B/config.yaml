@@ -1,0 +1,71 @@
+experiment: global-direction-probes-over-categories-prompts-qwen2-5-7B
+title: "Rosch difference-of-means probes pooled over categories and prompts: Qwen2.5-7B, period token"
+model: Qwen/Qwen2.5-7B
+# Raw and category contrast activations (target rows give the raw activations).
+cat_contrast_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
+# Item contrast: 9 contrast items per pair (seed 0).
+item_contrast_csv: data/processed/rosch/rosch_mean_item_contrast.csv
+# The 15 training prompt formats (the evaluation formats have no item contrast file).
+prompt_columns:
+  - rosch_example
+  - rosch_neg
+  - rosch_simple
+  - rosch_fav
+  - rosch_story_1
+  - rosch_story_2
+  - rosch_story_neg
+  - rosch_typ_frame_1
+  - rosch_typ_frame_2
+  - rosch_typ_frame_3
+  - rosch_hedge_1
+  - rosch_hedge_2
+  - rosch_hedge_3
+  - rosch_cat_first_1
+  - rosch_cat_first_2
+# Evaluation prompts, never used for training. Pooled over categories: one
+# extra column per prompt. The item contrast evaluation file has the same
+# contrast items as item_contrast_csv (seed 0).
+eval_cat_contrast_csv: data/processed/rosch/rosch_eval.csv
+eval_item_contrast_csv: data/processed/rosch/rosch_mean_item_contrast_eval.csv
+eval_prompt_columns: [rosch_eval_1, rosch_eval_2, rosch_eval_3]
+# Extraction settings (part of the activation cache key), the same as
+# experiments/activations/qwen2-5-7B.
+layers: [10, 15, 20, 25]
+position: period
+batch_size: 16
+device: auto
+dtype: float32
+prefix_token: "<|endoftext|>"
+activation_cache_dir: outputs/activation_cache
+# include: all items. exclude_core / exclude_extended: remove the items with
+# is_ambiguous_core / is_ambiguous_extended true from training and evaluation.
+ambiguity: [include, exclude_core, exclude_extended]
+# Difference of means: most typical 1/n minus least typical 1/n of the training
+# items. 2: halves, 3: thirds, 4: quarters.
+n_groups: [2, 3, 4]
+# Pooled over categories: per_category takes the top and bottom 1/n of each
+# category's training items (an offset between categories cancels); all takes
+# them over all training items.
+over_categories_groups: per_category
+# wilcoxon_auc: rank-sum AUC of the most vs least typical 1/n of the eval items.
+metrics: [spearman, pearson, wilcoxon_auc]
+# Folds are made in each category, stratified by typicality, and are the same
+# for all prompts and activation types. Pooled over categories: the metric is
+# computed in each category, then averaged. Pooled over prompts: the metric is
+# computed in each prompt, then averaged.
+n_folds: 5
+# fold_zscored: z-score the out-of-fold scores in each fold before the metric.
+cv_aggregate: fold_zscored
+# diagonal: the method for the diagonal cells of the transfer matrices.
+# full: the probe trained on all items, evaluated on the same items
+# (in-sample). cv: each fold probe on its held-out items. The off-diagonal
+# cells do not change.
+diagonal: full
+# Typicality = target_sign x target. A low rating is typical.
+target: rating_zscore
+target_sign: -1
+seed: 0
+output_dir: outputs/probes/global-direction/over-categories-prompts/qwen2-5-7B
+html_name: qwen2-5-7B-probes-02.html
+# A copy of the page goes here (in .gitignore). null: no copy.
+copy_html_to: experiments/probes/over-categories-prompts

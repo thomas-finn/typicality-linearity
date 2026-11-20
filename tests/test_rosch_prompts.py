@@ -106,15 +106,17 @@ def test_mean_contrast_rating_only_for_item_category():
 
 
 def test_ambiguous_flag_in_both_suites():
-    from typicality_linearity.rosch_prompts import AMBIGUOUS_ITEMS
+    from typicality_linearity.rosch_prompts import AMBIGUOUS_EXTENDED, AMBIGUOUS_ITEMS
 
     ratings = read_ratings(RATINGS_PATH)
     rated = {(row["category"], row["item"]) for row in ratings}
     assert set(AMBIGUOUS_ITEMS) <= rated
+    assert AMBIGUOUS_EXTENDED <= set(AMBIGUOUS_ITEMS)
 
     rows = build_prompts(ratings)
-    flagged = {(r["category"], r["item"]) for r in rows if r["is_ambiguous_strict"]}
-    assert flagged == set(AMBIGUOUS_ITEMS)
+    flagged = {(r["category"], r["item"]) for r in rows if r["is_ambiguous_extended"]}
+    assert flagged == AMBIGUOUS_EXTENDED
+    assert len(flagged) == 41
     assert ("bird", "bat") in flagged
     assert ("toy", "car") not in flagged
 
@@ -124,7 +126,7 @@ def test_ambiguous_flag_in_both_suites():
         r for r in contrast if (r["item_category"], r["item"]) == ("bird", "bat")
     ]
     assert len(bat_rows) == len(CATEGORY_FORMS)
-    assert all(r["is_ambiguous_strict"] for r in bat_rows)
+    assert all(r["is_ambiguous_extended"] for r in bat_rows)
 
 
 def test_prompt_formats_cover_templates():
@@ -183,7 +185,7 @@ def test_build_eval_prompts():
         assert row["rosch_eval_1"].endswith(".")
     own = [row for row in prompt_rows if row["is_item_category"]]
     assert [row["item"] for row in own] == ["doll", "bat"]
-    assert [row["is_ambiguous_strict"] for row in own] == [False, True]
+    assert [row["is_ambiguous_extended"] for row in own] == [False, True]
 
 
 def test_new_frames_count_noun():
@@ -222,21 +224,31 @@ def test_new_frames_mass_category_and_plural_item():
     )
 
 
-def test_lenient_ambiguous_is_subset_of_strict():
+def test_core_ambiguous_is_subset_of_extended():
+    from typicality_linearity.rosch_prompts import AMBIGUOUS_CORE
+
+    rows = build_prompts(read_ratings(RATINGS_PATH))
+    extended = {(r["category"], r["item"]) for r in rows if r["is_ambiguous_extended"]}
+    core = {(r["category"], r["item"]) for r in rows if r["is_ambiguous_core"]}
+    assert core == AMBIGUOUS_CORE
+    assert core <= extended
+    assert len(core) == 34
+    assert ("bird", "bat") in core
+    assert ("bird", "turkey") in core
+    assert ("sport", "squash") in core
+    assert ("bird", "lark") not in core
+    assert ("bird", "lark") in extended
+    assert ("bird", "duck") not in extended
+
+
+def test_ambiguous_flags_are_in_the_review_list():
     from typicality_linearity.rosch_prompts import (
+        AMBIGUOUS_CORE,
+        AMBIGUOUS_EXTENDED,
         AMBIGUOUS_ITEMS,
-        NOT_AMBIGUOUS_LENIENT,
     )
 
-    assert NOT_AMBIGUOUS_LENIENT <= set(AMBIGUOUS_ITEMS)
-    rows = build_prompts(read_ratings(RATINGS_PATH))
-    strict = {(r["category"], r["item"]) for r in rows if r["is_ambiguous_strict"]}
-    lenient = {(r["category"], r["item"]) for r in rows if r["is_ambiguous_lenient"]}
-    assert lenient == strict - NOT_AMBIGUOUS_LENIENT
-    assert len(lenient) == 44
-    assert ("bird", "bat") in lenient
-    assert ("bird", "duck") not in lenient
-    assert ("bird", "duck") in strict
+    assert AMBIGUOUS_CORE <= AMBIGUOUS_EXTENDED <= set(AMBIGUOUS_ITEMS)
 
 
 def test_mean_item_contrast_groups():
@@ -297,3 +309,138 @@ def test_mean_item_contrast_rating_only_for_anchor():
         else:
             assert prompt_row["rating"] is None
             assert prompt_row["rating_zscore"] is None
+
+
+def test_nonce_prompts():
+    from typicality_linearity.rosch_prompts import (
+        NONCE_CATEGORIES,
+        build_nonce_prompts,
+    )
+
+    assert NONCE_CATEGORIES == ("wugawrar", "njonjobura", "duplambi")
+    ratings = read_ratings(RATINGS_PATH)
+    rows = build_nonce_prompts(ratings)
+    normal = build_prompts(ratings)
+    assert len(rows) == 3 * len(normal)
+    assert "rating" not in rows[0] and "rating_zscore" not in rows[0]
+    assert set(TEMPLATES) <= set(rows[0])
+    for i, row in enumerate(rows):
+        normal_row = normal[i // 3]
+        assert (row["item"], row["category"]) == (
+            normal_row["item"],
+            normal_row["category"],
+        )
+        assert row["nonce_category"] == NONCE_CATEGORIES[i % 3]
+    dolls = [r for r in rows if (r["item"], r["category"]) == ("doll", "toy")]
+    assert [r["nonce_category"] for r in dolls] == list(NONCE_CATEGORIES)
+    doll = dolls[0]
+    assert doll["rosch_example"] == "A doll is an example of a wugawrar."
+    assert doll["rosch_story_1"].endswith("thought about wugawrars.")
+    assert doll["rosch_typ_frame_3"] == "A doll is an unusual wugawrar."
+    assert doll["rosch_cat_first_2"] == "An example of a wugawrar is a doll."
+    assert dolls[1]["rosch_example"] == "A doll is an example of a njonjobura."
+    assert dolls[2]["rosch_example"] == "A doll is an example of a duplambi."
+    tennis = next(r for r in rows if (r["item"], r["category"]) == ("tennis", "sport"))
+    assert tennis["rosch_simple"] == "Tennis: wugawrar."
+    assert tennis["rosch_hedge_1"] == "Technically, tennis is a wugawrar."
+
+
+def test_nonce_eval_prompts():
+    from typicality_linearity.rosch_prompts import (
+        EVAL_TEMPLATES,
+        build_nonce_prompts,
+    )
+
+    ratings = read_ratings(RATINGS_PATH)
+    rows = build_nonce_prompts(ratings, templates=EVAL_TEMPLATES)
+    assert len(rows) == 3 * len(ratings)
+    assert set(EVAL_TEMPLATES) <= set(rows[0])
+    assert not set(TEMPLATES) & set(rows[0])
+    doll = next(r for r in rows if (r["item"], r["category"]) == ("doll", "toy"))
+    assert doll["rosch_eval_1"] == "A doll is a kind of wugawrar."
+    assert doll["rosch_eval_3"].endswith("a doll is a wugawrar, do you think that.")
+
+
+def test_nonce_prompts_agree_with_plural_items():
+    from typicality_linearity.rosch_prompts import (
+        EVAL_TEMPLATES,
+        nonce_category_forms,
+    )
+
+    marbles = item_phrase("marbles", "toy")
+    doll = item_phrase("doll", "toy")
+    nonce = nonce_category_forms("wugawrar")
+    assert TEMPLATES["rosch_typ_frame_1"](marbles, nonce) == (
+        "Marbles are typical wugawrars."
+    )
+    assert TEMPLATES["rosch_typ_frame_3"](marbles, nonce) == (
+        "Marbles are unusual wugawrars."
+    )
+    assert TEMPLATES["rosch_hedge_1"](marbles, nonce) == (
+        "Technically, marbles are wugawrars."
+    )
+    assert (
+        TEMPLATES["rosch_hedge_3"](marbles, nonce) == "Marbles are wugawrars, sort of."
+    )
+    assert "marbles are wugawrars," in EVAL_TEMPLATES["rosch_eval_3"](marbles, nonce)
+    # "an example of" keeps the singular.
+    assert TEMPLATES["rosch_example"](marbles, nonce) == (
+        "Marbles are an example of a wugawrar."
+    )
+    # A singular item does not change.
+    assert (
+        TEMPLATES["rosch_typ_frame_1"](doll, nonce) == "A doll is a typical wugawrar."
+    )
+
+
+def test_real_prompts_agree_with_plural_items():
+    marbles = item_phrase("marbles", "toy")
+    pants = item_phrase("pant", "clothing")
+    assert render("rosch_hedge_3", "marbles", "toy") == "Marbles are toys, sort of."
+    assert render("rosch_hedge_1", "plier", "tool") == "Technically, pliers are tools."
+    assert TEMPLATES["rosch_typ_frame_1"](marbles, CATEGORY_FORMS["toy"]) == (
+        "Marbles are typical toys."
+    )
+    assert TEMPLATES["rosch_typ_frame_3"](marbles, CATEGORY_FORMS["sport"]) == (
+        "Marbles are unusual sports."
+    )
+    # A mass category has no plural form, so it does not change.
+    assert TEMPLATES["rosch_typ_frame_1"](pants, CATEGORY_FORMS["clothing"]) == (
+        "Pants are typical clothing."
+    )
+    assert (
+        render("rosch_example", "marbles", "toy") == "Marbles are an example of a toy."
+    )
+
+
+def test_mean_cat_contrast_extended_prompts():
+    from typicality_linearity.rosch_prompts import (
+        EXTENDED_CATEGORY_FORMS,
+        build_mean_cat_contrast_extended_prompts,
+    )
+
+    ratings = read_ratings(RATINGS_PATH)
+    rows = build_mean_cat_contrast_extended_prompts(ratings)
+    base = build_mean_cat_contrast_prompts(ratings)
+    n_categories = len(CATEGORY_FORMS) + len(EXTENDED_CATEGORY_FORMS)
+    assert len(rows) == len(ratings) * n_categories
+    # The rated-category rows are the base rows, in the same order.
+    rated = [r for r in rows if not r["is_extended_category"]]
+    assert len(rated) == len(base)
+    for row, base_row in zip(rated, base):
+        assert all(row[key] == value for key, value in base_row.items())
+    # Extended rows: never a target, never rated, no rating.
+    extended = [r for r in rows if r["is_extended_category"]]
+    assert not any(r["is_item_category"] or r["is_rated_member"] for r in extended)
+    assert all(r["rating"] is None for r in extended)
+    doll = {r["category"]: r for r in extended if r["item"] == "doll"}
+    assert (
+        doll["occupation"]["rosch_example"] == "A doll is an example of an occupation."
+    )
+    assert doll["fish"]["rosch_story_1"].endswith("when she thought about fish.")
+    marbles = {r["category"]: r for r in extended if r["item"] == "marbles"}
+    assert marbles["illness"]["rosch_typ_frame_1"] == "Marbles are typical illnesses."
+    members = {(r["category"], r["item"]) for r in rows if r["is_plausible_member"]}
+    assert ("musical instrument", "drum") in members
+    assert ("drink", "squash") in members
+    assert all(category in EXTENDED_CATEGORY_FORMS for category, _ in members)

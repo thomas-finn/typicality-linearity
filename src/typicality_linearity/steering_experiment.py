@@ -44,7 +44,6 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from typicality_linearity.probe_experiment import write_csv
 from typicality_linearity.rosch_prompts import (
     ARTICLE,
     CATEGORY_FORMS,
@@ -182,7 +181,7 @@ def read_items(config):
                 "category": row["category"],
                 "rating_zscore": float(row["rating_zscore"]),
                 "typicality": -float(row["rating_zscore"]),
-                "is_ambiguous": row["is_ambiguous_strict"] == "True",
+                "is_ambiguous_extended": row["is_ambiguous_extended"] == "True",
                 "context": context,
                 "item_text": item_text,
             }
@@ -193,6 +192,14 @@ def read_items(config):
     for item, third in zip(items, thirds):
         item["third"] = int(third)
     return items
+
+
+def write_csv(rows, path):
+    rows = list(rows)
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def check_context_is_prefix(tokenizer, context, words):
@@ -418,7 +425,7 @@ def run(config, config_path):
     with open(run_dir / "config.yaml", "w") as f:
         yaml.safe_dump(config, f, sort_keys=False)
 
-    metadata = start_metadata(run_id, config, config_path)
+    metadata = start_metadata(run_id, config, config_path, run_dir)
     write_metadata(metadata, run_dir / "metadata.json")
     try:
         set_seed(config["seed"])

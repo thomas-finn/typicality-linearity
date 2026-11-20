@@ -1,4 +1,4 @@
-"""Baselines that are subtracted from activations before PCA.
+"""Mean contrast baselines that are subtracted from activations.
 
 Mean contrast: the target row of a group minus the mean of the other rows of
 the group. A group is all rows of one (item, item_category) pair. Two layouts
@@ -22,8 +22,6 @@ of rows are supported:
 """
 
 import numpy as np
-
-BASELINES = (None, "mean_contrast")
 
 
 def is_true(value):
@@ -78,28 +76,3 @@ def mean_contrast(x, groups):
     for k, (target, others) in enumerate(groups):
         result[k] = x[target] - x[others].mean(axis=0)
     return result
-
-
-def target_rows(rows, baseline):
-    """Return the indices of the rows that become points in the plots."""
-    if baseline is None:
-        return list(range(len(rows)))
-    if baseline == "mean_contrast":
-        return [target for target, _ in mean_contrast_groups(rows)]
-    raise ValueError(f"Unknown baseline {baseline!r}. Use one of {BASELINES}")
-
-
-def apply_baseline(activations, rows, baseline):
-    """Return {position: activations of the target rows, baseline subtracted}.
-
-    activations: {position: array with shape (n_rows, n_layers, d_model)}
-    """
-    if baseline is None:
-        return activations
-    if baseline == "mean_contrast":
-        groups = mean_contrast_groups(rows)
-        return {
-            position: mean_contrast(values, groups)
-            for position, values in activations.items()
-        }
-    raise ValueError(f"Unknown baseline {baseline!r}. Use one of {BASELINES}")

@@ -5,13 +5,14 @@ shared by the pages; each page shows the selectors it uses. Each page is a 2x2
 grid, one panel per activation type.
 
 - Page 1, "Pooled over categories": rows train prompt, columns eval prompt.
-  One probe per prompt, trained on all categories. All cells are
-  cross-validated; the value is the mean over the categories of the metric in
+  One probe per prompt, trained on all categories. Off-diagonal cells are
+  cross-validated; the diagonal is cross-validated, or in-sample with
+  diagonal "full". The value is the mean over the categories of the metric in
   each category. The evaluation prompts (never used for training) are extra
   columns on the right, after a line.
 - Page 2, "Pooled over prompts": rows train category, columns eval category.
   One probe per category, trained on all prompts. The diagonal is
-  cross-validated; the value is the mean over the prompts of the metric in
+  cross-validated, or in-sample with diagonal "full". The value is the mean over the prompts of the metric in
   each prompt.
 - Page 3, "Pooled over categories and prompts" (only with evaluation
   prompts): one probe trained on all items of all categories in all training
@@ -49,6 +50,7 @@ def build_page_data(
     n_folds,
     points=None,
     eval_texts=None,
+    diagonal="cv",
 ):
     ranges = {}
     for mi, metric in enumerate(axes["metric"]):
@@ -70,6 +72,7 @@ def build_page_data(
         "promptFormats": prompt_formats,
         "cvAggregate": cv_aggregate,
         "nFolds": n_folds,
+        "diagonal": diagonal,
         "oc": to_json_list(arrays["over_categories"]),
         "oce": to_json_list(arrays["over_categories_eval"]),
         "op": to_json_list(arrays["over_prompts"]),
@@ -129,10 +132,12 @@ const state = {
   scale: "z",
   highlight: "all",
 };
+const DIAG_FULL = DATA.diagonal === "full";
+const DIAG_LABEL = DIAG_FULL ? "in-sample" : "CV";
 const NOTES = {
-  oc: "One probe per prompt format, trained on the items of all categories together. Rows: the train prompt. Columns: the eval prompt; the columns right of the line are the evaluation prompts, never used for training. All cells are cross-validated with the same folds, so a probe is never evaluated on its training items. The value is the metric in each category, averaged over the categories, so it measures the typicality order inside the categories.",
+  oc: "One probe per prompt format, trained on the items of all categories together. Rows: the train prompt. Columns: the eval prompt; the columns right of the line are the evaluation prompts, never used for training. " + (DIAG_FULL ? "Off-diagonal cells and the evaluation prompt columns are cross-validated with the same folds, so a probe is never evaluated on its training items. Diagonal cells use the probe trained on all items, evaluated on the same items (in-sample, not cross-validated)." : "All cells are cross-validated with the same folds, so a probe is never evaluated on its training items.") + " The value is the metric in each category, averaged over the categories, so it measures the typicality order inside the categories.",
   gl: "One probe trained on all items of all categories in all training prompt formats (the direction is the mean over the prompts). Each point is one item in the selected evaluation prompt, never used for training. The probe is not cross-validated: the items are the training items in a new prompt format. The metrics are computed in each category, then averaged.",
-  op: "One probe per category, trained on its items in all prompt formats together. Rows: the train category. Columns: the eval category. Off-diagonal cells use the probe trained on all items of the train category. Diagonal cells are cross-validated. The value is the metric in each prompt format, averaged over the prompt formats.",
+  op: "One probe per category, trained on its items in all prompt formats together. Rows: the train category. Columns: the eval category. Off-diagonal cells use the probe trained on all items of the train category. " + (DIAG_FULL ? "Diagonal cells use the probe trained on all items of the category, evaluated on the same items (in-sample, not cross-validated)." : "Diagonal cells are cross-validated.") + " The value is the metric in each prompt format, averaged over the prompt formats.",
 };
 
 function token(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -200,6 +205,8 @@ function draw() {
     const zShown = zEval ? z.map((row, i) => row.concat(zEval[i])) : z;
     const trace = {
       type: "heatmap", x: columns, y: names, z: zShown, zmin: centre - half, zmax: centre + half, zmid: centre,
+      // The value of each cell as text; Plotly picks a text colour with contrast to the cell.
+      texttemplate: "%{z:.2f}", textfont: { size: 8 },
       colorscale: colorscale, xgap: 2, ygap: 2, hoverongaps: false,
       hovertemplate: `${rowName}: %{y}<br>${colName}: %{x}<br><b>${valueName} %{z:.3f}</b><extra></extra>`,
       showscale: ti === 1,
@@ -222,7 +229,7 @@ function draw() {
         line: { color: token("--text-primary"), width: 2 },
       }] : [],
     };
-    let stats = `Diagonal (CV) mean ${fmt(meanOf(z, true))} · off-diagonal mean ${fmt(meanOf(z, false))}`;
+    let stats = `Diagonal (${DIAG_LABEL}) mean ${fmt(meanOf(z, true))} · off-diagonal mean ${fmt(meanOf(z, false))}`;
     if (zEval) stats += ` · eval prompts mean ${fmt(meanAll(zEval))}`;
     document.getElementById(`stats-${t}`).textContent = stats;
     Plotly.react(`heat-${t}`, [trace], layout, { responsive: true, displaylogo: false });
@@ -296,7 +303,7 @@ function render() {
 
 function init() {
   const cvText = { fold_zscored: "scores z-scored in each held-out fold", pooled: "pooled out-of-fold scores", mean_over_folds: "the mean over held-out folds" };
-  document.getElementById("cv-text").textContent = `${DATA.nFolds}-fold CV with ${cvText[DATA.cvAggregate] || DATA.cvAggregate}`;
+  document.getElementById("cv-text").textContent = `${DATA.nFolds}-fold CV with ${cvText[DATA.cvAggregate] || DATA.cvAggregate}` + (DIAG_FULL ? ". Diagonal cells are in-sample (the probe trained on all items), not cross-validated" : "");
   fillSelect("sel-layer", "layer", null, "layer");
   fillSelect("sel-ambiguity", "ambiguity", DATA.labels.ambiguity, "ambiguity");
   fillSelect("sel-groups", "n_groups", DATA.labels.n_groups, "groups");

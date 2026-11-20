@@ -5,9 +5,19 @@ global_pca_experiment.py (raw, mean category contrast, mean item contrast,
 both contrasts). The target is typicality = target_sign x target (higher is
 more typical).
 
+Optional config keys:
+- activation_types: the types to use (default: the four above). The type
+  "nonce_contrast" is a(i, c) - a(i, nonce): the raw activation minus the
+  mean activation of the same prompt with each nonce word as the category.
+- nonce_csv: the nonce prompts (data/processed/rosch/rosch_nonce.csv), with
+  the same prompt columns. Necessary for "nonce_contrast".
+- diagonal: "cv" (default) or "full". The method for the diagonal cells of
+  the transfer matrices. "cv": each fold probe on its held-out items. "full":
+  the full probe on all items it was trained on (in-sample, not held out).
+
 One setting is (ambiguity, activation type, layer, n_groups):
-- ambiguity: "include" (all items), "exclude_lenient" or "exclude_strict"
-  (remove the items with is_ambiguous_lenient / is_ambiguous_strict true from
+- ambiguity: "include" (all items), "exclude_core" or "exclude_extended"
+  (remove the items with is_ambiguous_core / is_ambiguous_extended true from
   training and evaluation; the folds are made again on the other items)
 - n_groups: 2 (halves), 3 (thirds), 4 (quarters). The probe direction is the
   mean of the most typical 1/n_groups of the training items minus the mean of
@@ -21,11 +31,12 @@ the same for all prompts and activation types.
 Matrices for each setting:
 - category transfer [metric][prompt]: rows train category, columns eval
   category. Off-diagonal: the full probe on all items of the eval category.
-  Diagonal: cross-validated (each fold probe on its held-out items).
+  Diagonal: cross-validated, or the full probe with diagonal "full".
 - category cosine [prompt]: cosine of the full probe directions.
 - prompt transfer [metric][category]: rows train prompt, columns eval prompt.
-  All cells are cross-validated with the same folds, so a probe is never
-  evaluated on the items it was trained on.
+  Off-diagonal cells are cross-validated with the same folds, so a probe is
+  never evaluated on the items it was trained on. The diagonal is
+  cross-validated, or the full probe with diagonal "full".
 - prompt cosine [category]: cosine of the full probe directions.
 
 Metrics: Spearman and Pearson correlation of score and typicality, and the
@@ -35,7 +46,8 @@ eval items (see probes.wilcoxon_auc).
 Cross-validated values are aggregated with `cv_aggregate`:
 - "fold_zscored": the scores are z-scored inside each held-out fold, then the
   metric is computed on all held-out items. This removes the offset that each
-  fold probe adds (see the ridge experiment README). No labels are used.
+  fold probe adds: with "pooled", the fold probes have different offsets, so
+  the pooled metric is biased low. No labels are used.
 - "pooled": the metric of all out-of-fold scores.
 - "mean_over_folds": the mean of the metric of each held-out fold.
 
@@ -44,7 +56,9 @@ Outputs go in `<output_dir>/<run_id>/`:
 - matrices.npz: the four matrices for all settings, and axes.json with the
   order of each axis
 - summary.csv: one row per setting and metric, with the means of the
-  diagonal and off-diagonal cells of each matrix
+  diagonal and off-diagonal cells of each matrix. `within_method` tells how
+  the diagonal ("within") columns are made: "cv", or "in_sample" with
+  diagonal "full".
 - <html_name>: the page (see global_probe_plot.py). If `copy_html_to` is set,
   the page is also copied there.
 """
@@ -58,6 +72,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from typicality_linearity.activation_source import LazyModel, get_activations
 from typicality_linearity.baselines import is_true, mean_contrast_groups
 from typicality_linearity.global_pca_experiment import (
     ACTIVATION_FORMULAS,
@@ -70,7 +85,6 @@ from typicality_linearity.global_pca_experiment import (
     read_rows,
 )
 from typicality_linearity.global_probe_plot import write_html
-from typicality_linearity.pca_experiment import LazyModel
 from typicality_linearity.probes import (
     fit_diff_of_means,
     make_folds,
@@ -117,14 +131,14 @@ REQUIRED_KEYS = (
 # Ambiguity setting: the column that marks the items to remove (None: keep all).
 AMBIGUITY_COLUMNS = {
     "include": None,
-    "exclude_lenient": "is_ambiguous_lenient",
-    "exclude_strict": "is_ambiguous_strict",
+    "exclude_core": "is_ambiguous_core",
+    "exclude_extended": "is_ambiguous_extended",
 }
 
 AMBIGUITY_LABELS = {
     "include": "Include all",
-    "exclude_lenient": "Exclude lenient",
-    "exclude_strict": "Exclude strict",
+    "exclude_core": "Exclude core",
+    "exclude_extended": "Exclude extended",
 }
 
 GROUP_LABELS = {2: "Halves", 3: "Thirds", 4: "Quarters"}
@@ -142,6 +156,9 @@ METRIC_CHANCE = {"spearman": 0.0, "pearson": 0.0, "wilcoxon_auc": 0.5}
 
 AGGREGATES = ("fold_zscored", "pooled", "mean_over_folds")
 
+# The method for the diagonal cells of the transfer matrices.
+DIAGONALS = ("cv", "full")
+
 SUMMARY_COLUMNS = (
     "ambiguity",
     "activation_type",
@@ -149,9 +166,10 @@ SUMMARY_COLUMNS = (
     "n_groups",
     "metric",
     "n_items",
-    "category_within_cv",
+    "within_method",
+    "category_within",
     "category_between",
-    "prompt_within_cv",
+    "prompt_within",
     "prompt_between",
     "category_cosine_between",
     "prompt_cosine_between",
@@ -172,7 +190,20 @@ def load_config(path):
             raise ValueError(f"Unknown metric {metric!r}")
     if config["cv_aggregate"] not in AGGREGATES:
         raise ValueError(f"Unknown cv_aggregate {config['cv_aggregate']!r}")
+    if config_diagonal(config) not in DIAGONALS:
+        raise ValueError(f"diagonal must be one of {DIAGONALS}")
     return config
+
+
+def config_diagonal(config):
+    return config.get("diagonal", "cv")
+
+
+def within_method(config):
+    """Return how the "within" summary columns are made: "cv" or "in_sample"."""
+    if config_diagonal(config) == "full":
+        return "in_sample"
+    return "cv"
 
 
 # Metrics and cross-validation
@@ -229,10 +260,10 @@ def check_groups(n_items, n_groups, n_folds):
 
 def fit_directions(x, y, folds, n_groups, n_folds):
     """Return (full direction (d,), fold directions (n_folds, d))."""
-    full = fit_diff_of_means(x, y, n_groups).weights
+    full = fit_diff_of_means(x, y, n_groups)
     by_fold = np.stack(
         [
-            fit_diff_of_means(x[folds != fold], y[folds != fold], n_groups).weights
+            fit_diff_of_means(x[folds != fold], y[folds != fold], n_groups)
             for fold in range(n_folds)
         ]
     )
@@ -255,13 +286,22 @@ def cosine_matrix(vectors):
 
 
 def setting_matrices(
-    x_by_prompt, y, categories, folds, n_groups, metrics, aggregate, n_folds
+    x_by_prompt,
+    y,
+    categories,
+    folds,
+    n_groups,
+    metrics,
+    aggregate,
+    n_folds,
+    diagonal="cv",
 ):
     """Return the four matrices for one setting.
 
     x_by_prompt: list of arrays (n_rows, d_model), one per prompt, same rows
     y: typicality of each row; categories: category of each row (in order)
     folds: fold of each row
+    diagonal: "cv" or "full" (the full probe on its training items)
 
     Result (n_m metrics, n_p prompts, n_c categories):
     - "category_transfer": (n_m, n_p, n_c, n_c)
@@ -292,7 +332,7 @@ def setting_matrices(
         for ti in range(n_c):
             for ei, rows in enumerate(rows_of):
                 x_eval = x[rows]
-                if ti == ei:
+                if ti == ei and diagonal == "cv":
                     scores = out_of_fold_scores(by_fold[ti, pi], x_eval, folds[rows])
                     for mi, metric in enumerate(metrics):
                         category_transfer[mi, pi, ti, ei] = cv_value(
@@ -311,6 +351,13 @@ def setting_matrices(
         prompt_cosine[ci] = cosine_matrix([full[ci, pi] for pi in range(n_p)])
         for ti in range(n_p):
             for ei, x in enumerate(x_by_prompt):
+                if ti == ei and diagonal == "full":
+                    scores = x[rows] @ full[ci, ti]
+                    for mi, metric in enumerate(metrics):
+                        prompt_transfer[mi, ci, ti, ei] = metric_value(
+                            metric, scores, y[rows], n_groups
+                        )
+                    continue
                 scores = out_of_fold_scores(by_fold[ci, ti], x[rows], folds[rows])
                 for mi, metric in enumerate(metrics):
                     prompt_transfer[mi, ci, ti, ei] = cv_value(
@@ -347,20 +394,70 @@ def keep_mask(point_rows, ambiguity):
     return np.array([not is_true(row[column]) for row in point_rows])
 
 
+def nonce_row_order(point_rows, nonce_rows):
+    """Return the indices in nonce_rows of each point (item, item_category).
+
+    There can be more than one nonce row for each point (one for each nonce
+    word). All points must have the same number of nonce rows.
+    """
+    index = {}
+    for i, row in enumerate(nonce_rows):
+        index.setdefault((row["item"], row["category"]), []).append(i)
+    keys = [(row["item"], row["item_category"]) for row in point_rows]
+    missing = [key for key in keys if key not in index]
+    if missing:
+        raise ValueError(f"The nonce file has no rows for {missing[:5]}")
+    counts = {len(index[key]) for key in keys}
+    if len(counts) != 1:
+        raise ValueError(f"Points have different numbers of nonce rows: {counts}")
+    return [index[key] for key in keys]
+
+
+def nonce_contrast(raw, nonce_values, order):
+    """a(i, c) - mean over nonce words w of a(i, w).
+
+    raw (n_points, ...), nonce_values (n_rows, ...), order from nonce_row_order.
+    """
+    return raw - nonce_values[np.array(order)].mean(axis=1)
+
+
+def config_activation_types(config):
+    types = list(config.get("activation_types") or ACTIVATION_TYPES)
+    unknown = [t for t in types if t not in ACTIVATION_LABELS]
+    if unknown:
+        raise ValueError(f"Unknown activation types {unknown}")
+    if "nonce_contrast" in types and not config.get("nonce_csv"):
+        raise ValueError("The nonce_contrast type needs nonce_csv in the config")
+    return types
+
+
 def load_points(
-    config, lazy_model, metadata, cat_csv=None, item_csv=None, prompt_columns=None
+    config,
+    lazy_model,
+    metadata,
+    cat_csv=None,
+    item_csv=None,
+    prompt_columns=None,
+    nonce_csv=None,
 ):
     """Return (point rows, {prompt: {type: array (n_points, n_layers, d)}}).
 
     The files and prompts default to the config's cat_contrast_csv,
-    item_contrast_csv and prompt_columns.
+    item_contrast_csv, prompt_columns and nonce_csv. Only the types of
+    config_activation_types are kept. The nonce contrast uses the rows of
+    nonce_csv (the same prompts with a nonce word as the category).
     """
+    wanted = config_activation_types(config)
     cat_rows = read_rows(cat_csv or config["cat_contrast_csv"])
     item_rows = read_rows(item_csv or config["item_contrast_csv"])
     cat_groups = mean_contrast_groups(cat_rows)
     item_groups = mean_contrast_groups(item_rows)
     check_same_points(cat_rows, cat_groups, item_rows, item_groups)
     point_rows = [cat_rows[target] for target, _ in cat_groups]
+    nonce_rows = None
+    if "nonce_contrast" in wanted:
+        nonce_rows = read_rows(nonce_csv or config["nonce_csv"])
+        order = nonce_row_order(point_rows, nonce_rows)
 
     extraction = extraction_config(config)
     types_by_prompt = {}
@@ -368,10 +465,21 @@ def load_points(
         cat_values, item_values, sources = prompt_activations(
             extraction, lazy_model, prompt, cat_rows, item_rows
         )
-        metadata["activation_sources"][prompt] = sources
         types = activation_types(cat_values, cat_groups, item_values, item_groups)
+        if nonce_rows is not None:
+            nonce_extracted, sources["nonce_csv"] = get_activations(
+                extraction,
+                lazy_model,
+                prompt,
+                [row[prompt] for row in nonce_rows],
+                [row["item_text"] for row in nonce_rows],
+            )
+            nonce_values = nonce_extracted.activations[config["position"]]
+            types["nonce_contrast"] = nonce_contrast(types["raw"], nonce_values, order)
+            del nonce_extracted, nonce_values
+        metadata["activation_sources"][prompt] = sources
         types_by_prompt[prompt] = {
-            name: values.astype(np.float32) for name, values in types.items()
+            name: types[name].astype(np.float32) for name in wanted
         }
         del cat_values, item_values
         print(f"Loaded {prompt}: {sources}")
@@ -392,7 +500,7 @@ def run(config, config_path):
     with open(run_dir / "config.yaml", "w") as f:
         yaml.safe_dump(config, f, sort_keys=False)
 
-    metadata = start_metadata(run_id, config, config_path)
+    metadata = start_metadata(run_id, config, config_path, run_dir)
     write_metadata(metadata, run_dir / "metadata.json")
 
     try:
@@ -407,7 +515,7 @@ def run(config, config_path):
         ambiguities = list(config["ambiguity"])
         group_counts = list(config["n_groups"])
         metrics = list(config["metrics"])
-        types = list(ACTIVATION_TYPES)
+        types = config_activation_types(config)
         all_categories = [row["item_category"] for row in point_rows]
         category_names = list(dict.fromkeys(all_categories))
         target = np.array(
@@ -449,6 +557,7 @@ def run(config, config_path):
                             metrics,
                             config["cv_aggregate"],
                             config["n_folds"],
+                            config_diagonal(config),
                         )
                         for name, values in result.items():
                             arrays[name][ai, ti, li, gi] = values
@@ -463,9 +572,10 @@ def run(config, config_path):
                                     "n_groups": n_groups,
                                     "metric": metric,
                                     "n_items": int(keep.sum()),
-                                    "category_within_cv": diagonal_mean(ct),
+                                    "within_method": within_method(config),
+                                    "category_within": diagonal_mean(ct),
                                     "category_between": off_diagonal_mean(ct),
-                                    "prompt_within_cv": diagonal_mean(pt),
+                                    "prompt_within": diagonal_mean(pt),
                                     "prompt_between": off_diagonal_mean(pt),
                                     "category_cosine_between": off_diagonal_mean(
                                         result["category_cosine"]
@@ -509,6 +619,7 @@ def run(config, config_path):
             prompt_formats={p: PROMPT_FORMATS.get(p, "") for p in prompts},
             cv_aggregate=config["cv_aggregate"],
             n_folds=config["n_folds"],
+            diagonal=config_diagonal(config),
         )
         if config["copy_html_to"] is not None:
             copy_dir = Path(config["copy_html_to"])

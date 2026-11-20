@@ -5,11 +5,13 @@ the selectors it uses. Each page is a 2x2 grid of heatmaps, one per
 activation type.
 
 - Page 1, "Transfer between categories": rows train category, columns eval
-  category, for the selected prompt format. The diagonal is cross-validated.
+  category, for the selected prompt format. The diagonal is cross-validated,
+  or with diagonal "full" the probe on all items of the category (in-sample).
 - Page 2, "Cosine between categories": cosine of the category directions, for
   the selected prompt format.
 - Page 3, "Transfer between prompts": rows train prompt, columns eval prompt,
-  for the selected category. All cells are cross-validated.
+  for the selected category. Off-diagonal cells are cross-validated. The
+  diagonal is cross-validated, or in-sample with diagonal "full".
 - Page 4, "Cosine between prompts": cosine of the prompt directions, for the
   selected category.
 
@@ -111,6 +113,7 @@ def build_page_data(
     prompt_formats,
     cv_aggregate,
     n_folds,
+    diagonal="cv",
 ):
     metrics = axes["metric"]
     transfer_ranges = {}
@@ -142,6 +145,7 @@ def build_page_data(
         "promptFormats": prompt_formats,
         "cvAggregate": cv_aggregate,
         "nFolds": n_folds,
+        "diagonal": diagonal,
         "ct": to_json_list(arrays["category_transfer"]),
         "cc": to_json_list(arrays["category_cosine"]),
         "pt": to_json_list(arrays["prompt_transfer"]),
@@ -219,7 +223,7 @@ h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
 }
 .context { color: var(--text-secondary); margin: 0 0 12px; }
 .context code { color: var(--text-primary); background: var(--surface-1); padding: 2px 6px; border-radius: 4px; }
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(var(--columns, 2), minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
 .panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-width: 0; }
 .panel h2 { font-size: 15px; font-weight: 600; margin: 0; }
@@ -286,10 +290,12 @@ const state = {
   prompt: AX.prompt[0],
   metric: AX.metric[0],
 };
+const DIAG_FULL = DATA.diagonal === "full";
+const DIAG_LABEL = DIAG_FULL ? "in-sample" : "CV";
 const NOTES = {
-  ct: "Rows: the category the probe is trained on. Columns: the category it is evaluated on, in the selected prompt format. Off-diagonal cells use the probe trained on all items of the train category. Diagonal cells are cross-validated in the category. Click a cell to select its train category.",
+  ct: "Rows: the category the probe is trained on. Columns: the category it is evaluated on, in the selected prompt format. Off-diagonal cells use the probe trained on all items of the train category. " + (DIAG_FULL ? "Diagonal cells use the probe trained on all items of the category, evaluated on the same items (in-sample, not cross-validated)." : "Diagonal cells are cross-validated in the category.") + " Click a cell to select its train category.",
   cc: "Cosine similarity of the probe directions (trained on all items of each category) in the selected prompt format. The diagonal is 1. Rows and columns are in the leaf order of the dendrogram below, so the order changes with the selectors. Click a cell to select its row category.",
-  pt: "Rows: the prompt format the probe is trained on. Columns: the prompt format it is evaluated on, for the selected category. All cells are cross-validated with the same folds, so a probe is never evaluated on its training items. The outline marks the selected prompt format. Click a cell to select its train prompt.",
+  pt: "Rows: the prompt format the probe is trained on. Columns: the prompt format it is evaluated on, for the selected category. " + (DIAG_FULL ? "Off-diagonal cells are cross-validated with the same folds, so a probe is never evaluated on its training items. Diagonal cells use the probe trained on all items, evaluated on the same items (in-sample, not cross-validated)." : "All cells are cross-validated with the same folds, so a probe is never evaluated on its training items.") + " The outline marks the selected prompt format. Click a cell to select its train prompt.",
   pc: "Cosine similarity of the probe directions (trained on all items of the selected category) between prompt formats. The diagonal is 1. Rows and columns are in the leaf order of the dendrogram below, so the order changes with the selectors. The outline marks the selected prompt format. Click a cell to select its row prompt.",
 };
 
@@ -330,7 +336,14 @@ function matrixFor(typeIndex) {
   return base[c];
 }
 
+// Four types: a 2x2 grid. Two or three types: one row, side by side.
+function gridColumns() {
+  const n = AX.activation_type.length;
+  return n === 4 ? 2 : Math.min(n, 3);
+}
+
 function buildPanels() {
+  document.documentElement.style.setProperty("--columns", gridColumns());
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
   AX.activation_type.forEach(t => {
@@ -475,10 +488,12 @@ function draw() {
     const zOrdered = order.map(i => order.map(j => z[i][j]));
     const trace = {
       type: "heatmap", x: labels, y: labels, z: zOrdered, zmin: centre - half, zmax: centre + half, zmid: centre,
+      // The value of each cell as text; Plotly picks a text colour with contrast to the cell.
+      texttemplate: "%{z:.2f}", textfont: { size: 8 },
       colorscale: colorscale, xgap: 2, ygap: 2, hoverongaps: false,
       hovertemplate: `${rowName}: %{y}<br>${colName}: %{x}<br><b>${valueName} %{z:.3f}</b><extra></extra>`,
-      showscale: ti === 1,
-      colorbar: ti === 1 ? {
+      showscale: ti === gridColumns() - 1,
+      colorbar: ti === gridColumns() - 1 ? {
         title: { text: valueName, font: { color: token("--text-secondary") } },
         tickfont: { color: token("--text-muted") }, thickness: 10, len: 0.9, outlinewidth: 0,
       } : undefined,
@@ -504,7 +519,7 @@ function draw() {
     }
     let stats;
     if (isTransfer) {
-      stats = `Diagonal (CV) mean ${fmt(meanOf(z, true))} · off-diagonal mean ${fmt(meanOf(z, false))}`;
+      stats = `Diagonal (${DIAG_LABEL}) mean ${fmt(meanOf(z, true))} · off-diagonal mean ${fmt(meanOf(z, false))}`;
     } else {
       stats = `Off-diagonal mean cosine ${fmt(meanOf(z, false))}`;
     }
@@ -550,7 +565,7 @@ function render() {
 
 function init() {
   const cvText = { fold_zscored: "scores z-scored in each held-out fold", pooled: "pooled out-of-fold scores", mean_over_folds: "the mean over held-out folds" };
-  document.getElementById("cv-text").textContent = `${DATA.nFolds}-fold CV with ${cvText[DATA.cvAggregate] || DATA.cvAggregate}`;
+  document.getElementById("cv-text").textContent = `${DATA.nFolds}-fold CV with ${cvText[DATA.cvAggregate] || DATA.cvAggregate}` + (DIAG_FULL ? ". Diagonal cells are in-sample (the probe trained on all items), not cross-validated" : "");
   fillSelect("sel-category", "category", null, "category");
   fillSelect("sel-layer", "layer", null, "layer");
   fillSelect("sel-ambiguity", "ambiguity", DATA.labels.ambiguity, "ambiguity");

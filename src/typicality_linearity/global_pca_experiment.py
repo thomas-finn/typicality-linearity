@@ -36,6 +36,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from typicality_linearity.activation_source import LazyModel, get_activations
 from typicality_linearity.baselines import mean_contrast, mean_contrast_groups
 from typicality_linearity.global_pca_plot import write_html
 from typicality_linearity.pca import (
@@ -43,7 +44,6 @@ from typicality_linearity.pca import (
     fit_pca,
     n_components_for_variance,
 )
-from typicality_linearity.pca_experiment import LazyModel, get_activations
 from typicality_linearity.rosch_prompts import PROMPT_FORMATS
 from typicality_linearity.run_metadata import (
     make_run_id,
@@ -82,6 +82,7 @@ ACTIVATION_LABELS = {
     "cat_contrast": "Mean category contrast",
     "item_contrast": "Mean item contrast",
     "both_contrasts": "Both contrasts",
+    "nonce_contrast": "Nonce contrast",
 }
 
 ACTIVATION_FORMULAS = {
@@ -89,6 +90,7 @@ ACTIVATION_FORMULAS = {
     "cat_contrast": "a(i, c) − E_c′[a(i, c′)]",
     "item_contrast": "a(i, c) − E_i′[a(i′, c)]",
     "both_contrasts": "a(i, c) − E_c′[a(i, c′)] − E_i′[a(i′, c)]",
+    "nonce_contrast": "a(i, c) − a(i, nonce)",
 }
 
 ALL_SCOPE = "all"
@@ -266,7 +268,7 @@ def run(config, config_path):
     with open(run_dir / "config.yaml", "w") as f:
         yaml.safe_dump(config, f, sort_keys=False)
 
-    metadata = start_metadata(run_id, config, config_path)
+    metadata = start_metadata(run_id, config, config_path, run_dir)
     write_metadata(metadata, run_dir / "metadata.json")
 
     try:

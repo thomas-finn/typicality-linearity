@@ -10,6 +10,7 @@ from typicality_linearity.activation_cache import (
     cache_key,
     key_inputs,
     load_entry,
+    model_cache_dir,
 )
 from typicality_linearity.activation_extraction import (
     check_derive_from,
@@ -123,6 +124,11 @@ def test_run_fills_cache_then_uses_it(tmp_path, monkeypatch):
     assert all(r["source"] == "model" for r in manifest)
     metadata = json.loads((run_dir / "metadata.json").read_text())
     assert metadata["status"] == "completed"
+    # The entries are in the subdirectory of the model.
+    model_dir = tmp_path / "cache" / "fake-model"
+    assert len(list(model_dir.glob("*.npz"))) == 4
+    assert list((tmp_path / "cache").glob("*.npz")) == []
+    assert all(r["npz_path"].startswith(str(model_dir)) for r in manifest)
 
     # A second run finds all entries in the cache and does not extract.
     config["output_dir"] = str(tmp_path / "out2")
@@ -177,9 +183,8 @@ def entry_of(config, csv_rows, column):
         item_texts,
         config["prefix_token"],
     )
-    return load_entry(
-        config["activation_cache_dir"], column, cache_key(inputs), config["positions"]
-    )
+    cache_dir = model_cache_dir(config["activation_cache_dir"], config["model"])
+    return load_entry(cache_dir, column, cache_key(inputs), config["positions"])
 
 
 def test_source_row_indices():
@@ -246,5 +251,70 @@ def test_check_derive_from(tmp_path):
     with pytest.raises(ValueError):
         check_derive_from(config)
     config["derive_from"] = {"a.csv": "b.csv", "b.csv": "a.csv"}
+    with pytest.raises(ValueError):
+        check_derive_from(config)
+
+
+def extended_contrast_rows():
+    """Rows like an extended contrast file: contrast_rows() and new categories."""
+    rows = []
+    for item in ("doll", "robin"):
+        for category in ("toy", "bird", "fish", "drink"):
+            rows.append(
+                {
+                    "item": item,
+                    "item_text": item,
+                    "rosch_example": f"A {item} is an example of a {category}.",
+                }
+            )
+    return rows
+
+
+def test_extended_entry_copies_source_rows_and_extracts_the_others(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "cat.csv"
+    target = tmp_path / "cat_extended.csv"
+    write_csv(source, contrast_rows())
+    write_csv(target, extended_contrast_rows())
+    config = make_config(tmp_path, [target, source])
+    config["extend_from"] = {str(target): str(source)}
+    extracted_prompts = []
+
+    class CountingModel(FakeModel):
+        def extract(self, prompts, item_texts):
+            extracted_prompts.append(list(prompts))
+            return super().extract(prompts, item_texts)
+
+    monkeypatch.setattr(activation_extraction, "LazyModel", CountingModel)
+    run_dir = run(config, "config.yaml")
+
+    source_prompts = {row["rosch_example"] for row in contrast_rows()}
+    new_prompts = [
+        row["rosch_example"]
+        for row in extended_contrast_rows()
+        if row["rosch_example"] not in source_prompts
+    ]
+    # One call for the source, one call with only the new rows of the target.
+    assert len(extracted_prompts) == 2
+    assert extracted_prompts[1] == new_prompts
+    with open(run_dir / "manifest.csv") as f:
+        manifest = {r["prompts_csv"]: r for r in csv.DictReader(f)}
+    assert manifest[str(target)]["source"] == "extended"
+    assert manifest[str(target)]["n_model_rows"] == str(len(new_prompts))
+
+    extended = entry_of(config, extended_contrast_rows(), "rosch_example")
+    prompts = [row["rosch_example"] for row in extended_contrast_rows()]
+    direct = FakeModel(config, {}).extract(prompts, None)
+    np.testing.assert_array_equal(
+        extended.activations["period"], direct.activations["period"]
+    )
+    assert extended.token_spans["period"] == direct.token_spans["period"]
+
+
+def test_a_file_cannot_be_derived_and_extended(tmp_path):
+    config = make_config(tmp_path, ["a.csv", "b.csv"])
+    config["derive_from"] = {"a.csv": "b.csv"}
+    config["extend_from"] = {"a.csv": "b.csv"}
     with pytest.raises(ValueError):
         check_derive_from(config)

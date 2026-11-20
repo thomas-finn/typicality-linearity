@@ -1,6 +1,7 @@
 """Difference-of-means probes pooled over categories or over prompts.
 
-The points, activation types, settings (ambiguity, activation type, layer,
+The points, activation types (`activation_types`, with the nonce contrast
+from `nonce_csv` and, for the evaluation prompts, `eval_nonce_csv`), settings (ambiguity, activation type, layer,
 n_groups), folds, metrics and CV aggregation are the same as in
 global_probe_experiment.py. Here the probes are pooled:
 
@@ -16,8 +17,11 @@ global_probe_experiment.py. Here the probes are pooled:
     direction, and this can be larger than the typicality signal.
   Matrix rows train prompt, columns eval prompt: the training prompts, then
   the evaluation prompts (`eval_prompt_columns`, never used for training).
-  All cells are cross-validated with the same folds: each fold probe is
-  evaluated on the held-out items in the eval prompt. The metric is computed in
+  Off-diagonal cells (and the evaluation prompt columns) are cross-validated
+  with the same folds: each fold probe is evaluated on the held-out items in
+  the eval prompt. The diagonal is cross-validated, or with `diagonal: full`
+  the probe on all items is evaluated on the same items (in-sample). The
+  metric is computed in
   each category (fold z-scored as in global_probe_experiment), then averaged
   over the categories. So the value measures typicality grading inside the
   categories, not the order of the categories.
@@ -28,8 +32,9 @@ global_probe_experiment.py. Here the probes are pooled:
   (mean of the top group - mean of the bottom group), which is the difference
   of means of all (item, prompt) rows. Matrix rows train category, columns
   eval category. Off-diagonal: the probe on all items of the train category,
-  evaluated on the eval category. Diagonal: cross-validated. The metric is
-  computed in each prompt, then averaged over the prompts.
+  evaluated on the eval category. Diagonal: cross-validated, or with
+  `diagonal: full` the probe on all items of the category (in-sample). The
+  metric is computed in each prompt, then averaged over the prompts.
 
 - Over categories and prompts (page 3, only with `eval_prompt_columns`): one
   probe per setting, trained on all items of all categories in all training
@@ -55,7 +60,10 @@ Outputs go in `<output_dir>/<run_id>/`:
     over_prompts_cosine (setting..., category, category): cosine of the
     directions trained on all items
 - summary.csv: one row per setting and metric, with the means of the
-  diagonal (CV) and off-diagonal cells of each matrix
+  diagonal and off-diagonal cells of each matrix. `within_method` tells how
+  the diagonal ("within") columns are made: "cv", or "in_sample" with
+  diagonal "full". `global_eval_prompts_in_sample` is page 3: always
+  in-sample for the items (only the prompt format is new).
 - <html_name>: the page (see global_pooled_probe_plot.py). If `copy_html_to`
   is set, the page is also copied there.
 """
@@ -69,10 +77,10 @@ from pathlib import Path
 import numpy as np
 import yaml
 
+from typicality_linearity.activation_source import LazyModel
 from typicality_linearity.global_pca_experiment import (
     ACTIVATION_FORMULAS,
     ACTIVATION_LABELS,
-    ACTIVATION_TYPES,
     extraction_config,
 )
 from typicality_linearity.global_pooled_probe_plot import write_html
@@ -82,6 +90,8 @@ from typicality_linearity.global_probe_experiment import (
     METRIC_CHANCE,
     METRIC_LABELS,
     check_groups,
+    config_activation_types,
+    config_diagonal,
     cosine_matrix,
     cv_value,
     diagonal_mean,
@@ -90,11 +100,11 @@ from typicality_linearity.global_probe_experiment import (
     metric_value,
     off_diagonal_mean,
     out_of_fold_scores,
+    within_method,
 )
 from typicality_linearity.global_probe_experiment import (
     load_config as load_probe_config,
 )
-from typicality_linearity.pca_experiment import LazyModel
 from typicality_linearity.probes import extreme_groups, fit_diff_of_means, make_folds
 from typicality_linearity.rosch_prompts import EVAL_PROMPT_FORMATS, PROMPT_FORMATS
 from typicality_linearity.run_metadata import (
@@ -112,11 +122,12 @@ SUMMARY_COLUMNS = (
     "n_groups",
     "metric",
     "n_items",
-    "over_categories_within_prompt_cv",
+    "within_method",
+    "over_categories_within_prompt",
     "over_categories_between_prompts",
     "over_categories_eval_prompts",
-    "global_eval_prompts",
-    "over_prompts_within_category_cv",
+    "global_eval_prompts_in_sample",
+    "over_prompts_within_category",
     "over_prompts_between_categories",
     "over_categories_cosine_between",
     "over_prompts_cosine_between",
@@ -133,6 +144,12 @@ def load_config(path):
         for key in ("eval_cat_contrast_csv", "eval_item_contrast_csv"):
             if not config.get(key):
                 raise ValueError(f"eval_prompt_columns needs {key}")
+        if "nonce_contrast" in config_activation_types(config) and not config.get(
+            "eval_nonce_csv"
+        ):
+            raise ValueError(
+                "nonce_contrast with eval_prompt_columns needs eval_nonce_csv"
+            )
     return config
 
 
@@ -147,7 +164,7 @@ def check_same_rows(point_rows, eval_rows):
 def pooled_category_direction(x, rows, y, categories, n_groups, mode):
     """Difference of means of the rows in rows, over all their categories."""
     if mode == "all":
-        return fit_diff_of_means(x[rows], y[rows], n_groups).weights
+        return fit_diff_of_means(x[rows], y[rows], n_groups)
     if mode != "per_category":
         raise ValueError(f"Unknown over_categories_groups {mode!r}")
     most = []
@@ -176,13 +193,15 @@ def over_categories_matrices(
     n_folds,
     mode,
     x_eval_by_prompt=(),
+    diagonal="cv",
 ):
     """Return (transfer (n_m, n_p, n_p, n_c), eval transfer (n_m, n_p, n_e, n_c),
     cosine (n_p, n_p)).
 
-    One probe per prompt on all categories. Cells are CV; the last axis is the
-    eval category (mean over it gives the page value). x_eval_by_prompt: the
-    activations of the same rows in the n_e evaluation prompts.
+    One probe per prompt on all categories. Cells are CV, except the diagonal
+    with diagonal "full" (the probe on all items, in-sample). The last axis is
+    the eval category (mean over it gives the page value). x_eval_by_prompt:
+    the activations of the same rows in the n_e evaluation prompts.
     """
     category_names = list(dict.fromkeys(categories))
     categories = np.asarray(categories)
@@ -221,11 +240,22 @@ def over_categories_matrices(
                 )
         return values
 
+    def full_by_category(direction, x):
+        scores = x @ direction
+        values = np.empty((n_m, n_c))
+        for ci, rows in enumerate(rows_of):
+            for mi, metric in enumerate(metrics):
+                values[mi, ci] = metric_value(metric, scores[rows], y[rows], n_groups)
+        return values
+
     transfer = np.empty((n_m, n_p, n_p, n_c))
     eval_transfer = np.empty((n_m, n_p, len(x_eval_by_prompt), n_c))
     for ti in range(n_p):
         for ei, x in enumerate(x_by_prompt):
-            transfer[:, ti, ei] = cv_by_category(by_fold[ti], x)
+            if ti == ei and diagonal == "full":
+                transfer[:, ti, ei] = full_by_category(full[ti], x)
+            else:
+                transfer[:, ti, ei] = cv_by_category(by_fold[ti], x)
         for ei, x in enumerate(x_eval_by_prompt):
             eval_transfer[:, ti, ei] = cv_by_category(by_fold[ti], x)
     return transfer, eval_transfer, cosine_matrix(full)
@@ -297,12 +327,21 @@ def pooled_prompt_direction(x_by_prompt, rows, y, n_groups):
 
 
 def over_prompts_matrices(
-    x_by_prompt, y, categories, folds, n_groups, metrics, aggregate, n_folds
+    x_by_prompt,
+    y,
+    categories,
+    folds,
+    n_groups,
+    metrics,
+    aggregate,
+    n_folds,
+    diagonal="cv",
 ):
     """Return (transfer (n_m, n_c, n_c, n_p), cosine (n_c, n_c)).
 
     One probe per category on all prompts. The last axis is the eval prompt
-    (mean over it gives the page value). The diagonal is CV.
+    (mean over it gives the page value). The diagonal is CV, or with diagonal
+    "full" the probe on all items of the category (in-sample).
     """
     category_names = list(dict.fromkeys(categories))
     categories = np.asarray(categories)
@@ -331,7 +370,7 @@ def over_prompts_matrices(
         for ei, rows in enumerate(rows_of):
             for pi, x in enumerate(x_by_prompt):
                 x_eval = x[rows]
-                if ti == ei:
+                if ti == ei and diagonal == "cv":
                     scores = out_of_fold_scores(by_fold[ti], x_eval, folds[rows])
                     for mi, metric in enumerate(metrics):
                         transfer[mi, ti, ei, pi] = cv_value(
@@ -360,7 +399,7 @@ def run(config, config_path):
     with open(run_dir / "config.yaml", "w") as f:
         yaml.safe_dump(config, f, sort_keys=False)
 
-    metadata = start_metadata(run_id, config, config_path)
+    metadata = start_metadata(run_id, config, config_path, run_dir)
     write_metadata(metadata, run_dir / "metadata.json")
 
     try:
@@ -379,6 +418,7 @@ def run(config, config_path):
                 config["eval_cat_contrast_csv"],
                 config["eval_item_contrast_csv"],
                 eval_prompts,
+                config.get("eval_nonce_csv"),
             )
             check_same_rows(point_rows, eval_rows)
 
@@ -387,7 +427,7 @@ def run(config, config_path):
         ambiguities = list(config["ambiguity"])
         group_counts = list(config["n_groups"])
         metrics = list(config["metrics"])
-        types = list(ACTIVATION_TYPES)
+        types = config_activation_types(config)
         all_categories = [row["item_category"] for row in point_rows]
         category_names = list(dict.fromkeys(all_categories))
         target = np.array(
@@ -443,8 +483,11 @@ def run(config, config_path):
                             *arguments,
                             config["over_categories_groups"],
                             x_eval_by_prompt,
+                            config_diagonal(config),
                         )
-                        op, op_cos = over_prompts_matrices(*arguments)
+                        op, op_cos = over_prompts_matrices(
+                            *arguments, config_diagonal(config)
+                        )
                         index = (ai, ti, li, gi)
                         arrays["over_categories_by_category"][index] = oc
                         arrays["over_categories_eval_by_category"][index] = oc_eval
@@ -476,7 +519,8 @@ def run(config, config_path):
                                     "n_groups": n_groups,
                                     "metric": metric,
                                     "n_items": int(keep.sum()),
-                                    "over_categories_within_prompt_cv": diagonal_mean(
+                                    "within_method": within_method(config),
+                                    "over_categories_within_prompt": diagonal_mean(
                                         oc_mean[mi]
                                     ),
                                     "over_categories_between_prompts": off_diagonal_mean(
@@ -487,7 +531,7 @@ def run(config, config_path):
                                         if n_e
                                         else float("nan")
                                     ),
-                                    "global_eval_prompts": (
+                                    "global_eval_prompts_in_sample": (
                                         float(
                                             np.nanmean(
                                                 arrays["global_eval_metrics"][index][mi]
@@ -496,7 +540,7 @@ def run(config, config_path):
                                         if n_e
                                         else float("nan")
                                     ),
-                                    "over_prompts_within_category_cv": diagonal_mean(
+                                    "over_prompts_within_category": diagonal_mean(
                                         op_mean[mi]
                                     ),
                                     "over_prompts_between_categories": off_diagonal_mean(
@@ -567,6 +611,7 @@ def run(config, config_path):
             },
             cv_aggregate=config["cv_aggregate"],
             n_folds=config["n_folds"],
+            diagonal=config_diagonal(config),
         )
         if config["copy_html_to"] is not None:
             copy_dir = Path(config["copy_html_to"])

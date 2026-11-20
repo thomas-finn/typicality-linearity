@@ -17,18 +17,27 @@ own cache key, so experiments find it as a normal entry. The activations are
 the ones the model gave for the source row; the prompt and item text are the
 same, so only the batch is different.
 
+Extended entries: `extend_from` maps a target CSV to a source CSV, as
+derive_from, but the target can have rows that are not in the source (for
+example, rosch_mean_cat_contrast_extended.csv has the rows of
+rosch_mean_cat_contrast.csv and rows for 10 more categories). The rows that
+are in the source are copied from the cached source entry; only the other
+rows are extracted with the model.
+
 Outputs go in `<output_dir>/<run_id>/`:
 - config.yaml: copy of the config
 - metadata.json: git commit, seed, environment, status
 - manifest.csv: one row per entry: CSV, column, number of prompts, cache key,
-  source ("cache", "model" or "derived"), the key of the source entry for a
-  derived entry, and the path of the .npz file
+  source ("cache", "model", "derived" or "extended"), the key of the source
+  entry for a derived or extended entry, the number of rows extracted with
+  the model, and the path of the .npz file
 """
 
 import csv
 import traceback
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from typicality_linearity.activation_cache import (
@@ -37,9 +46,10 @@ from typicality_linearity.activation_cache import (
     entry_paths,
     key_inputs,
     load_entry,
+    model_cache_dir,
     save_entry,
 )
-from typicality_linearity.pca_experiment import LazyModel
+from typicality_linearity.activation_source import LazyModel
 from typicality_linearity.run_metadata import (
     make_run_id,
     now_utc,
@@ -75,6 +85,7 @@ MANIFEST_COLUMNS = (
     "key",
     "source",
     "source_key",
+    "n_model_rows",
     "npz_path",
 )
 
@@ -96,16 +107,34 @@ def derive_from_of(config):
     return config.get("derive_from") or {}
 
 
+def extend_from_of(config):
+    """Return {target csv: source csv}. Empty if the config has no extend_from."""
+    return config.get("extend_from") or {}
+
+
+def sources_of(config):
+    """Return {target csv: (source csv, "derive" or "extend")}."""
+    sources = {}
+    for target, source in derive_from_of(config).items():
+        sources[target] = (source, "derive")
+    for target, source in extend_from_of(config).items():
+        if target in sources:
+            raise ValueError(f"{target} is in both derive_from and extend_from")
+        sources[target] = (source, "extend")
+    return sources
+
+
 def check_derive_from(config):
     csvs = set(config["prompt_csvs"])
-    derive_from = derive_from_of(config)
-    for target, source in derive_from.items():
+    sources = sources_of(config)
+    for target, (source, mode) in sources.items():
+        name = f"{mode}_from"
         if target not in csvs or source not in csvs:
             raise ValueError(
-                f"derive_from {target} -> {source}: both files must be in prompt_csvs"
+                f"{name} {target} -> {source}: both files must be in prompt_csvs"
             )
-        if source in derive_from:
-            raise ValueError(f"derive_from source {source} is also derived")
+        if source in sources:
+            raise ValueError(f"{name} source {source} is also derived or extended")
 
 
 def read_rows(path):
@@ -145,9 +174,9 @@ def extraction_jobs(config):
     The jobs of the CSVs that are not derived come first, in config order, so
     a source entry is always made before the entries derived from it.
     """
-    derive_from = derive_from_of(config)
-    ordered_csvs = [p for p in config["prompt_csvs"] if p not in derive_from]
-    ordered_csvs += [p for p in config["prompt_csvs"] if p in derive_from]
+    sources = sources_of(config)
+    ordered_csvs = [p for p in config["prompt_csvs"] if p not in sources]
+    ordered_csvs += [p for p in config["prompt_csvs"] if p in sources]
 
     jobs = []
     for csv_path in ordered_csvs:
@@ -162,7 +191,8 @@ def extraction_jobs(config):
                     "column": column,
                     "prompts": prompts,
                     "item_texts": item_texts,
-                    "derive_from": derive_from.get(csv_path),
+                    "source_csv": sources.get(csv_path, (None, None))[0],
+                    "mode": sources.get(csv_path, (None, None))[1],
                 }
             )
     return jobs
@@ -188,19 +218,25 @@ def entry_key(config, prompts, item_texts):
     return inputs, cache_key(inputs)
 
 
-def source_row_indices(source_prompts, source_item_texts, prompts, item_texts):
+def source_row_indices(
+    source_prompts, source_item_texts, prompts, item_texts, allow_missing=False
+):
     """Return, for each target row, the index of a source row with the same
-    prompt and item text."""
+    prompt and item text. With allow_missing, a row that is not in the source
+    gets None; otherwise it is an error."""
     lookup = {}
     for index, pair in enumerate(zip(source_prompts, source_item_texts)):
         lookup.setdefault(pair, index)
     indices = []
     for prompt, item_text in zip(prompts, item_texts):
-        if (prompt, item_text) not in lookup:
+        if (prompt, item_text) in lookup:
+            indices.append(lookup[(prompt, item_text)])
+        elif allow_missing:
+            indices.append(None)
+        else:
             raise ValueError(
                 f"Prompt {prompt!r} with item text {item_text!r} is not in the source"
             )
-        indices.append(lookup[(prompt, item_text)])
     return indices
 
 
@@ -216,9 +252,41 @@ def select_rows(extracted, indices):
     return ExtractedActivations(activations, token_spans, token_texts)
 
 
+def merge_rows(n_rows, parts):
+    """Return one ExtractedActivations from parts.
+
+    parts: list of (target row indices, ExtractedActivations of those rows).
+    Each target row must be in exactly one part.
+    """
+    first = parts[0][1]
+    activations = {}
+    token_spans = {}
+    token_texts = {}
+    for position, values in first.activations.items():
+        activations[position] = np.empty(
+            (n_rows,) + values.shape[1:], dtype=values.dtype
+        )
+        token_spans[position] = [None] * n_rows
+        token_texts[position] = [None] * n_rows
+    for rows, extracted in parts:
+        for position, values in activations.items():
+            values[rows] = extracted.activations[position]
+            for k, row in enumerate(rows):
+                token_spans[position][row] = extracted.token_spans[position][k]
+                token_texts[position][row] = extracted.token_texts[position][k]
+    for position in activations:
+        if any(span is None for span in token_spans[position]):
+            raise ValueError("merge_rows: a row is in no part")
+    return ExtractedActivations(activations, token_spans, token_texts)
+
+
+def cache_dir_of(config):
+    return model_cache_dir(config["activation_cache_dir"], config["model"])
+
+
 def entry_exists(config, prompt_name, key):
     # Only check that the files exist, so a large entry is not loaded.
-    npz_path, json_path = entry_paths(config["activation_cache_dir"], prompt_name, key)
+    npz_path, json_path = entry_paths(cache_dir_of(config), prompt_name, key)
     return npz_path.exists() and json_path.exists()
 
 
@@ -233,28 +301,33 @@ def extract_job(config, lazy_model, job):
             "experiment": config["experiment"],
         }
         save_entry(
-            config["activation_cache_dir"],
+            cache_dir_of(config),
             job["column"],
             key,
             inputs,
             extracted,
             extra_info,
         )
-        return manifest_row(config, job, key, "model", "")
-    return manifest_row(config, job, key, "cache", "")
+        return manifest_row(config, job, key, "model", "", len(job["prompts"]))
+    return manifest_row(config, job, key, "cache", "", 0)
 
 
-def derive_job(config, job, source_job):
-    """Put one entry in the cache from the source entry. Return a manifest row."""
+def derive_job(config, job, source_job, lazy_model=None):
+    """Put one entry in the cache from the source entry. Return a manifest row.
+
+    With job mode "extend", the rows that are not in the source are extracted
+    with lazy_model.
+    """
+    extend = job["mode"] == "extend"
     inputs, key = entry_key(config, job["prompts"], job["item_texts"])
     _source_inputs, source_key = entry_key(
         config, source_job["prompts"], source_job["item_texts"]
     )
     if entry_exists(config, job["column"], key):
-        return manifest_row(config, job, key, "cache", source_key)
+        return manifest_row(config, job, key, "cache", source_key, 0)
 
     source = load_entry(
-        config["activation_cache_dir"],
+        cache_dir_of(config),
         source_job["column"],
         source_key,
         config["positions"],
@@ -268,7 +341,17 @@ def derive_job(config, job, source_job):
         source_job["item_texts"],
         job["prompts"],
         job["item_texts"],
+        allow_missing=extend,
     )
+    copied = [row for row, index in enumerate(indices) if index is not None]
+    missing = [row for row, index in enumerate(indices) if index is None]
+    parts = [(copied, select_rows(source, [indices[row] for row in copied]))]
+    if missing:
+        extracted = lazy_model.extract(
+            [job["prompts"][row] for row in missing],
+            [job["item_texts"][row] for row in missing],
+        )
+        parts.append((missing, extracted))
     extra_info = {
         "experiment": config["experiment"],
         "derived_from": {
@@ -277,21 +360,24 @@ def derive_job(config, job, source_job):
             "key": source_key,
         },
     }
+    if extend:
+        extra_info["n_model_rows"] = len(missing)
+        extra_info["device"] = lazy_model.device
+        extra_info["batch_size"] = config["batch_size"]
     save_entry(
-        config["activation_cache_dir"],
+        cache_dir_of(config),
         job["column"],
         key,
         inputs,
-        select_rows(source, indices),
+        merge_rows(len(job["prompts"]), parts),
         extra_info,
     )
-    return manifest_row(config, job, key, "derived", source_key)
+    source_name = "extended" if extend else "derived"
+    return manifest_row(config, job, key, source_name, source_key, len(missing))
 
 
-def manifest_row(config, job, key, source, source_key):
-    npz_path, _json_path = entry_paths(
-        config["activation_cache_dir"], job["column"], key
-    )
+def manifest_row(config, job, key, source, source_key, n_model_rows):
+    npz_path, _json_path = entry_paths(cache_dir_of(config), job["column"], key)
     return {
         "prompts_csv": job["csv"],
         "prompt_column": job["column"],
@@ -299,6 +385,7 @@ def manifest_row(config, job, key, source, source_key):
         "key": key,
         "source": source,
         "source_key": source_key,
+        "n_model_rows": n_model_rows,
         "npz_path": str(npz_path),
     }
 
@@ -317,7 +404,7 @@ def run(config, config_path):
     with open(run_dir / "config.yaml", "w") as f:
         yaml.safe_dump(config, f, sort_keys=False)
 
-    metadata = start_metadata(run_id, config, config_path)
+    metadata = start_metadata(run_id, config, config_path, run_dir)
     write_metadata(metadata, run_dir / "metadata.json")
 
     try:
@@ -328,11 +415,11 @@ def run(config, config_path):
         metadata["n_entries"] = len(jobs)
         manifest_rows = []
         for number, job in enumerate(jobs, 1):
-            if job["derive_from"] is None:
+            if job["source_csv"] is None:
                 row = extract_job(config, lazy_model, job)
             else:
-                source_job = find_job(jobs, job["derive_from"], job["column"])
-                row = derive_job(config, job, source_job)
+                source_job = find_job(jobs, job["source_csv"], job["column"])
+                row = derive_job(config, job, source_job, lazy_model)
             print(
                 f"[{number}/{len(jobs)}] {job['csv']} {job['column']}: "
                 f"{len(job['prompts'])} prompts, {row['source']}"

@@ -5,6 +5,7 @@ from typicality_linearity.activation_cache import (
     cache_key,
     key_inputs,
     load_entry,
+    model_cache_dir,
     save_entry,
 )
 
@@ -63,3 +64,9 @@ def test_key_changes_with_prefix_token():
     a = key_inputs("m", "float32", [1], POSITIONS, ["a"], ["x"], None)
     b = key_inputs("m", "float32", [1], POSITIONS, ["a"], ["x"], "<|endoftext|>")
     assert cache_key(a) != cache_key(b)
+
+
+def test_model_cache_dir_has_one_folder_per_model(tmp_path):
+    assert model_cache_dir(tmp_path, "Qwen/Qwen2.5-7B") == tmp_path / "Qwen2.5-7B"
+    assert model_cache_dir(tmp_path, "Qwen/Qwen2.5-1.5B") == tmp_path / "Qwen2.5-1.5B"
+    assert model_cache_dir(str(tmp_path), "local-model") == tmp_path / "local-model"

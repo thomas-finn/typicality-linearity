@@ -26,7 +26,7 @@ Typicality thirds: the items of each category are ranked by typicality (−`rati
 
 ### Direction
 
-Source run: `outputs/probes/rosch/qwen2-5-1-5B-diff-means/20261105T123218Z_probes-rosch-qwen2-5-1-5B-diff-means` (see `experiments/probes/rosch/qwen2-5-1-5B-diff-means/`).
+Source run: `outputs/probes/rosch/qwen2-5-1-5B-diff-means/20261105T123218Z_probes-rosch-qwen2-5-1-5B-diff-means` (the experiment folder `experiments/probes/rosch/qwen2-5-1-5B-diff-means/` and the code `diff_means_experiment.py` are removed; both are in git commit `88c73a3`). In that run, `exclude` removed the 72 items of the first ambiguity review (`AMBIGUOUS_ITEMS` in `rosch_prompts.py`), not the 34 core or 41 extended items used now. The steering code reads the saved `summary.csv` and `probe_weights.npz` of the run, so it does not need the removed code. `items.csv` now has the column `is_ambiguous_extended` (before: `is_ambiguous`).
 
 The setting with the highest `mean_all_eval` (Spearman) is selected: the mean direction over all 10 categories and 7 training prompts, scored on the 3 evaluation prompts. This is **quarters, c = 0.5, ambiguous items excluded, mean contrast** (`g4_c0.5_exclude`, 0.550). The settings near the top are almost equal (`g4_c0.25_exclude` 0.549, `g4_c0_exclude` 0.549). Ranked by `mean_loco_eval`, the best is `g3_c0_exclude` (0.560).
 

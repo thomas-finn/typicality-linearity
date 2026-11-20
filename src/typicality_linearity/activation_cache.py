@@ -5,7 +5,8 @@ that change the activations: model, dtype, layers, positions, prefix token,
 and the exact prompt and item texts. If one of these changes, the key changes, so a stale
 entry is never used.
 
-Files in the cache directory:
+Each model has its own subdirectory, so the entries of different models are
+not mixed. Files in <cache_dir>/<model folder>/ (see model_cache_dir):
 - <prompt_name>_<key>.npz: activations, token spans and token texts
 - <prompt_name>_<key>.json: the key inputs and how the entry was made
 """
@@ -54,6 +55,16 @@ def key_inputs(model, dtype, layers, positions, prompts, item_texts, prefix_toke
 def cache_key(inputs):
     text = json.dumps(inputs, sort_keys=True)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def model_cache_dir(cache_dir, model):
+    """Return the cache subdirectory of a model.
+
+    The folder name is the model name without the organisation, for example
+    "Qwen/Qwen2.5-7B" -> <cache_dir>/Qwen2.5-7B.
+    """
+    folder = model.split("/")[-1]
+    return Path(cache_dir) / folder
 
 
 def entry_paths(cache_dir, prompt_name, key):

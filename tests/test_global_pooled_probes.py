@@ -1,7 +1,14 @@
 import csv
 
 import numpy as np
-from test_global_probes import FakeModel, cat_rows, item_rows, synthetic, write_csv
+from test_global_probes import (
+    FakeModel,
+    cat_rows,
+    item_rows,
+    nonce_rows,
+    synthetic,
+    write_csv,
+)
 
 from typicality_linearity import global_pooled_probe_experiment
 from typicality_linearity.global_pooled_probe_experiment import (
@@ -13,7 +20,7 @@ from typicality_linearity.global_pooled_probe_experiment import (
     pooled_prompt_direction,
     run,
 )
-from typicality_linearity.probes import fit_diff_of_means
+from typicality_linearity.probes import fit_diff_of_means, spearman
 
 METRICS = ["spearman", "pearson", "wilcoxon_auc"]
 
@@ -22,7 +29,7 @@ def test_pooled_prompt_direction_is_mean_of_prompt_directions():
     x_by_prompt, y, _categories, _ = synthetic()
     rows = np.arange(30)
     direction = pooled_prompt_direction(x_by_prompt, rows, y, 3)
-    per_prompt = [fit_diff_of_means(x[rows], y[rows], 3).weights for x in x_by_prompt]
+    per_prompt = [fit_diff_of_means(x[rows], y[rows], 3) for x in x_by_prompt]
     np.testing.assert_allclose(direction, np.mean(per_prompt, axis=0))
 
 
@@ -105,6 +112,46 @@ def test_over_prompts_finds_a_shared_signal_and_no_signal_is_chance():
     assert abs(transfer.mean()) < 0.25
 
 
+def test_over_categories_full_diagonal_is_in_sample():
+    x_by_prompt, y, categories, folds = synthetic()
+    arguments = (x_by_prompt, y, categories, folds, 3, ["spearman"], "fold_zscored", 5)
+    eval_prompts = [x_by_prompt[1]]
+    cv, cv_eval, _ = over_categories_matrices(
+        *arguments, "per_category", eval_prompts, "cv"
+    )
+    full, full_eval, _ = over_categories_matrices(
+        *arguments, "per_category", eval_prompts, "full"
+    )
+    categories = np.asarray(categories)
+    all_rows = np.arange(len(y))
+    for pi, x in enumerate(x_by_prompt):
+        direction = pooled_category_direction(
+            x, all_rows, y, categories, 3, "per_category"
+        )
+        for ci, category in enumerate(["toy", "bird"]):
+            rows = categories == category
+            expected = spearman(x[rows] @ direction, y[rows])
+            assert full[0, pi, pi, ci] == np.float64(expected)
+    np.testing.assert_allclose(full[:, 0, 1], cv[:, 0, 1])
+    np.testing.assert_allclose(full[:, 1, 0], cv[:, 1, 0])
+    # The evaluation prompt columns stay cross-validated.
+    np.testing.assert_allclose(full_eval, cv_eval)
+
+
+def test_over_prompts_full_diagonal_is_in_sample():
+    x_by_prompt, y, categories, folds = synthetic()
+    arguments = (x_by_prompt, y, categories, folds, 3, ["spearman"], "fold_zscored", 5)
+    cv, _ = over_prompts_matrices(*arguments, "cv")
+    full, _ = over_prompts_matrices(*arguments, "full")
+    toy = np.arange(30)
+    direction = pooled_prompt_direction(x_by_prompt, toy, y, 3)
+    for pi, x in enumerate(x_by_prompt):
+        expected = spearman(x[toy] @ direction, y[toy])
+        assert full[0, 0, 0, pi] == np.float64(expected)
+    np.testing.assert_allclose(full[:, 0, 1], cv[:, 0, 1])
+    np.testing.assert_allclose(full[:, 1, 0], cv[:, 1, 0])
+
+
 def test_run_end_to_end(tmp_path, monkeypatch):
     cat_path = tmp_path / "cat.csv"
     item_path = tmp_path / "item.csv"
@@ -119,7 +166,7 @@ def test_run_end_to_end(tmp_path, monkeypatch):
         "prompt_columns": ["rosch_example", "rosch_neg"],
         "layers": [1, 2],
         "position": "period",
-        "ambiguity": ["include", "exclude_lenient", "exclude_strict"],
+        "ambiguity": ["include", "exclude_core", "exclude_extended"],
         "n_groups": [2, 3],
         "metrics": METRICS,
         "n_folds": 5,
@@ -151,6 +198,7 @@ def test_run_end_to_end(tmp_path, monkeypatch):
     with open(run_dir / "summary.csv") as f:
         assert len(list(csv.DictReader(f))) == 3 * 4 * 2 * 2 * 3
     page = (run_dir / "page.html").read_text()
+    assert 'texttemplate: "%{z:.2f}"' in page
     assert "Pooled over prompts" in page
     assert "NaN" not in page
     assert (tmp_path / "copy" / "page.html").exists()
@@ -191,7 +239,7 @@ def test_run_with_eval_prompts(tmp_path, monkeypatch):
         "eval_item_contrast_csv": str(item_path),
         "eval_prompt_columns": ["rosch_neg"],
         "position": "period",
-        "ambiguity": ["include", "exclude_strict"],
+        "ambiguity": ["include", "exclude_extended"],
         "n_groups": [3],
         "metrics": METRICS,
         "n_folds": 5,
@@ -216,7 +264,7 @@ def test_run_with_eval_prompts(tmp_path, monkeypatch):
         assert np.all(np.isfinite(data["over_categories_eval"]))
         assert data["global_scores_raw"].shape == (2, 4, 1, 1, 1, 40)
         assert np.all(np.isfinite(data["global_scores_z"][0]))
-        # exclude_strict removes 2 items per category: their scores are NaN.
+        # exclude_extended removes 2 items per category: their scores are NaN.
         assert np.isnan(data["global_scores_z"][1]).sum() == 4 * 4
         assert data["global_eval_metrics"].shape == (2, 4, 1, 1, 3, 1)
     with open(run_dir / "summary.csv") as f:
@@ -225,7 +273,84 @@ def test_run_with_eval_prompts(tmp_path, monkeypatch):
     page = (run_dir / "page.html").read_text()
     assert '"eval_prompt":["rosch_neg"]' in page
     assert "Pooled over categories and prompts" in page
-    assert all(r["global_eval_prompts"] not in ("", "nan") for r in rows)
+    assert all(r["global_eval_prompts_in_sample"] not in ("", "nan") for r in rows)
+
+
+def test_run_with_nonce_contrast_and_eval_prompts(tmp_path, monkeypatch):
+    cat_path = tmp_path / "cat.csv"
+    item_path = tmp_path / "item.csv"
+    nonce_path = tmp_path / "nonce.csv"
+    write_csv(cat_path, cat_rows())
+    write_csv(item_path, item_rows())
+    write_csv(nonce_path, nonce_rows())
+    config = {
+        "experiment": "test-pooled-nonce",
+        "title": "Test",
+        "model": "fake",
+        "cat_contrast_csv": str(cat_path),
+        "item_contrast_csv": str(item_path),
+        "nonce_csv": str(nonce_path),
+        "activation_types": ["raw", "cat_contrast", "nonce_contrast"],
+        "prompt_columns": ["rosch_example"],
+        "eval_cat_contrast_csv": str(cat_path),
+        "eval_item_contrast_csv": str(item_path),
+        "eval_nonce_csv": str(nonce_path),
+        "eval_prompt_columns": ["rosch_neg"],
+        "layers": [1],
+        "position": "period",
+        "ambiguity": ["include"],
+        "n_groups": [3],
+        "metrics": METRICS,
+        "n_folds": 5,
+        "over_categories_groups": "per_category",
+        "cv_aggregate": "fold_zscored",
+        "target": "rating_zscore",
+        "target_sign": -1,
+        "batch_size": 2,
+        "device": "cpu",
+        "dtype": "float32",
+        "prefix_token": None,
+        "seed": 0,
+        "activation_cache_dir": str(tmp_path / "cache"),
+        "output_dir": str(tmp_path / "out"),
+        "html_name": "page.html",
+        "copy_html_to": None,
+    }
+    monkeypatch.setattr(global_pooled_probe_experiment, "LazyModel", FakeModel)
+    run_dir = run(config, "config.yaml")
+    with np.load(run_dir / "matrices.npz") as data:
+        assert data["over_categories"].shape == (1, 3, 1, 1, 3, 1, 1)
+        assert data["over_categories_eval"].shape == (1, 3, 1, 1, 3, 1, 1)
+        assert np.all(np.isfinite(data["over_categories_eval"]))
+        assert np.all(np.isfinite(data["global_eval_metrics"]))
+    with open(run_dir / "summary.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert {r["activation_type"] for r in rows} == {
+        "raw",
+        "cat_contrast",
+        "nonce_contrast",
+    }
+    assert "Nonce contrast" in (run_dir / "page.html").read_text()
+
+
+NONCE_CONFIG = (
+    "experiments/probes/over-categories-prompts/qwen2-5-1-5B-nonce/config.yaml"
+)
+
+
+def test_nonce_contrast_with_eval_prompts_needs_eval_nonce_csv(tmp_path):
+    import pytest
+    import yaml
+
+    from typicality_linearity.global_pooled_probe_experiment import load_config
+
+    config = load_config(NONCE_CONFIG)
+    assert "nonce_contrast" in config["activation_types"]
+    del config["eval_nonce_csv"]
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(config))
+    with pytest.raises(ValueError, match="eval_nonce_csv"):
+        load_config(path)
 
 
 def test_global_direction_is_mean_of_prompt_directions():

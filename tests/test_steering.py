@@ -254,7 +254,7 @@ def test_read_items_category_filter(tmp_path):
 
     path = tmp_path / "p.csv"
     path.write_text(
-        "item,category,rating_zscore,is_ambiguous_strict\n"
+        "item,category,rating_zscore,is_ambiguous_extended\n"
         "gun,weapon,-1.0,False\n"
         "apple,fruit,-1.0,False\n"
         "knife,weapon,0.5,False\n"
