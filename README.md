@@ -18,7 +18,13 @@ See [`data`](./data/) for more details.
 
 ## Experiments
 
+There are three main types of experiments that we will perform using the suite of prompts built from the Rosch data.
 
+ - *PCA analysis* to visualise the activations.
+ - *Probes* to test if typicality is linearly encoded.
+ - *Steering* to test if any typicality directions discovered are causal.
+
+Outputs from experiments and activations are stored in [`outputs`](./outputs/) but this is not comm
 
 ### PCA analysis
 
@@ -28,9 +34,19 @@ See [`experiments/pca`](./experiments/pca/) for more details.
 
 ### Probing
 
-We 
+Probing experiments attempt to see if simple linear probes correlate with typicality and if they do so within a given category or across all categories. 
+
+Probing experiments will be done across layers, prompt formats, model families, model sizes, and datasets.
+
+See [`experiments/probes`](./experiments/probes/) for more details.
 
 ### Steering
 
 **Work in progress**
+
+## Code
+
+Most of the code needed to perform our experiments is in [`src/typicality_linearity`](./src/typicality_linearity/) and [`scripts/`](./scripts/) contains simple wrapper functions used to execute what is needed for experiments.
+
+**Disclaimer**: Claude Code was used to create much of the code and I take full responsibility for it. All mistakes in this repo are mine. See [CLAUDE.md](./CLAUDE.md) and [AGENTS.md](./AGENTS.md) for more information on both executing code and how Claude has been instructed.
 
