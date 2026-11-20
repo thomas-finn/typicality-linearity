@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 
 from typicality_linearity.probes import (
-    average_ranks,
     fit_diff_of_means,
     make_folds,
     pearson,
@@ -10,8 +9,14 @@ from typicality_linearity.probes import (
 )
 
 
-def test_average_ranks_with_ties():
-    assert average_ranks([10, 20, 20, 5]).tolist() == [2.0, 3.5, 3.5, 1.0]
+def test_constant_input_is_nan_without_a_warning():
+    import warnings
+
+    a = np.array([1.0, 2.0, 3.0, 4.0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert np.isnan(pearson(a, np.ones(4)))
+        assert np.isnan(spearman(np.ones(4), a))
 
 
 def test_spearman_and_pearson():

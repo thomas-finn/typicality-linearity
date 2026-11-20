@@ -29,6 +29,9 @@ All other settings are the same: layers 10, 15, 20, 25, period token, float32, p
 
 The page has the same four tabs and selectors as `../qwen2-5-1-5B-probes-01.html`, with the three activation types side by side in one row (and the dendrograms under them on the cosine tabs).
 
+
+**Scoring change (2026-11-20).** Baselines are now used only to train the probes. All scores (transfer cells, held-out items, in-sample diagonals and evaluation prompts) are x_raw · direction. Before, a probe was scored on activations of its own type (for example a category contrast probe on category contrast activations). The results below are from runs before this change. Run the experiment again to get results with raw scoring. The raw rows do not change.
+
 ## Command
 
 From the repository root:

@@ -125,6 +125,28 @@ def test_setting_matrices_full_diagonal_is_in_sample():
         )
 
 
+def test_setting_matrices_score_on_the_given_activations():
+    x_by_prompt, y, categories, folds = synthetic()
+    rng = np.random.default_rng(9)
+    x_score = [rng.normal(size=x.shape) for x in x_by_prompt]
+    arguments = (x_by_prompt, y, categories, folds, 3, ["spearman"], "fold_zscored", 5)
+    default = setting_matrices(*arguments, diagonal="full")
+    same = setting_matrices(*arguments, diagonal="full", x_score_by_prompt=x_by_prompt)
+    for name in default:
+        np.testing.assert_allclose(same[name], default[name])
+
+    scored = setting_matrices(*arguments, diagonal="full", x_score_by_prompt=x_score)
+    toy = np.flatnonzero(np.asarray(categories) == "toy")
+    for pi, x in enumerate(x_by_prompt):
+        direction = fit_diff_of_means(x[toy], y[toy], 3)
+        expected = spearman(x_score[pi][toy] @ direction, y[toy])
+        assert scored["category_transfer"][0, pi, 0, 0] == pytest.approx(expected)
+        assert scored["prompt_transfer"][0, 0, pi, pi] == pytest.approx(expected)
+    # The directions come from the training activations only.
+    np.testing.assert_allclose(scored["category_cosine"], default["category_cosine"])
+    np.testing.assert_allclose(scored["prompt_cosine"], default["prompt_cosine"])
+
+
 def test_keep_mask():
     rows = [
         {"is_ambiguous_extended": "True", "is_ambiguous_core": "False"},
@@ -267,6 +289,49 @@ def test_run_end_to_end(tmp_path, monkeypatch):
     assert "Cosine between prompts" in page
     assert "NaN" not in page
     assert (tmp_path / "copy" / "page.html").exists()
+
+
+def test_run_scores_on_raw_without_raw_in_activation_types(tmp_path, monkeypatch):
+    import json
+
+    cat_path = tmp_path / "cat.csv"
+    item_path = tmp_path / "item.csv"
+    write_csv(cat_path, cat_rows())
+    write_csv(item_path, item_rows())
+    config = {
+        "experiment": "test-global-probes-raw-scores",
+        "title": "Test",
+        "model": "fake",
+        "cat_contrast_csv": str(cat_path),
+        "item_contrast_csv": str(item_path),
+        "activation_types": ["cat_contrast"],
+        "prompt_columns": ["rosch_example", "rosch_neg"],
+        "layers": [1],
+        "position": "period",
+        "ambiguity": ["include"],
+        "n_groups": [3],
+        "metrics": ["spearman"],
+        "n_folds": 5,
+        "cv_aggregate": "fold_zscored",
+        "target": "rating_zscore",
+        "target_sign": -1,
+        "batch_size": 2,
+        "device": "cpu",
+        "dtype": "float32",
+        "prefix_token": None,
+        "seed": 0,
+        "activation_cache_dir": str(tmp_path / "cache"),
+        "output_dir": str(tmp_path / "out"),
+        "html_name": "page.html",
+        "copy_html_to": None,
+    }
+    monkeypatch.setattr(global_probe_experiment, "LazyModel", FakeModel)
+    run_dir = run(config, "config.yaml")
+    with open(run_dir / "summary.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert {r["activation_type"] for r in rows} == {"cat_contrast"}
+    metadata = json.loads((run_dir / "metadata.json").read_text())
+    assert metadata["score_activation_type"] == "raw"
 
 
 def test_cosine_linkage_joins_the_closest_pair_first():

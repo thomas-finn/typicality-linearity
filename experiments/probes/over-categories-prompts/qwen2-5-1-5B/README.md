@@ -29,6 +29,9 @@ Evaluation prompts (page 1 only, never used for training): `rosch_eval_1` to `ro
 - The value is computed inside a category (page 1) or inside a prompt (page 2), so a direction does not score well only because it orders the categories or the prompts.
 - `matrices.npz` has the evaluation columns in `over_categories_eval` (and `over_categories_eval_by_category`), and also the values before the mean (`over_categories_by_category`, `over_prompts_by_prompt`) and the cosine between the directions trained on all items (`over_categories_cosine` between prompts, `over_prompts_cosine` between categories). The page does not show them.
 
+
+**Scoring change (2026-11-20).** Baselines are now used only to train the probes. All scores (transfer cells, held-out items, in-sample diagonals and evaluation prompts) are x_raw · direction. Before, a probe was scored on activations of its own type (for example a category contrast probe on category contrast activations). Run `20261120T151754Z` is the first run with raw scoring (see Result). The older results are kept under it for comparison.
+
 ## Command
 
 From the repository root:
@@ -40,6 +43,32 @@ Outputs in `outputs/probes/global-direction/over-categories-prompts/qwen2-5-1-5B
 The page has three pages (tabs). Pages 1 and 2 are 2×2 grids of heatmaps, one per activation type, with the selectors layer, ambiguous items, difference of means (halves/thirds/quarters) and metric. Page 3 is a 2×2 grid of scatter plots with the selectors evaluation prompt, layer, ambiguous items, difference of means, score (z-scored in each category or raw) and highlighted category.
 
 ## Result
+
+### Raw scoring (2026-11-20)
+
+Run `20261120T151754Z` (2026-11-20, 3 min 37 s, local CPU, all activations from the cache), status completed. The same config as `20261118T114256Z` (only `copy_html_to` is different), with all scores on raw activations. `20261118T114256Z` used the prompts before the plural agreement fix, so the raw rows are not exactly the same: max difference 0.006 over all raw rows and summary columns, and 0.005 for the cosines of all types. The summary column `global_eval_prompts` is now `global_eval_prompts_in_sample`.
+
+L15, thirds, include, Spearman. Matched scoring (`20261118T114256Z`) → raw scoring. oc: pooled over categories (page 1); op: pooled over prompts (page 2); within columns are in-sample (`diagonal: full`).
+
+| Activation type (training) | oc within prompt | oc between prompts | oc eval prompts | Page 3 eval prompts | op within category | op between categories |
+|:-|:-|:-|:-|:-|:-|:-|
+| raw | 0.55 → 0.55 | 0.41 → 0.41 | 0.43 → 0.43 | 0.55 → 0.55 | 0.65 → 0.65 | 0.30 → 0.29 |
+| cat contrast | 0.54 → 0.53 | 0.44 → 0.41 | 0.49 → 0.42 | 0.57 → 0.53 | 0.65 → 0.58 | 0.41 → 0.38 |
+| item contrast | 0.53 → 0.55 | 0.38 → 0.41 | 0.39 → 0.43 | 0.51 → 0.54 | 0.64 → 0.64 | 0.26 → 0.28 |
+| both contrasts | 0.52 → 0.53 | 0.41 → 0.41 | 0.45 → 0.41 | 0.54 → 0.52 | 0.65 → 0.56 | 0.37 → 0.36 |
+
+Exclude extended, cat contrast: oc eval prompts 0.51 → 0.43 (raw 0.44); op between categories 0.46 → 0.44 (raw 0.33).
+
+Include, thirds, Spearman, raw scoring, layers 10 / 15 / 20 / 25:
+- oc eval prompts: raw 0.38 / 0.43 / 0.32 / 0.37; cat contrast 0.38 / 0.42 / 0.30 / 0.27 (before 0.51 / 0.49 / 0.31 / 0.32).
+- Page 3: raw 0.46 / 0.55 / 0.52 / 0.59; cat contrast 0.44 / 0.53 / 0.45 / 0.47 (before 0.55 / 0.57 / 0.45 / 0.48).
+- op between categories: raw 0.20 / 0.29 / 0.25 / 0.15; cat contrast 0.32 / 0.38 / 0.28 / 0.17 (before 0.40 / 0.41 / 0.30 / 0.21).
+
+Eval prompts by prompt (L15, thirds, include, mean over train prompts), `rosch_eval_1` / `_2` / `_3`: raw 0.47 / 0.55 / 0.27; cat contrast 0.46 / 0.54 / 0.25 (before 0.44 / 0.57 / 0.46). On `rosch_eval_3` (negated), the cat contrast probe with raw scoring is at or below raw in 7 of 10 categories (for example weapon 0.80 → 0.27, raw 0.25; vehicle 0.66 → 0.38, raw 0.41).
+
+The interpretation below is for the matched scoring. See "Interpretation with raw scoring" for this run.
+
+### Matched scoring (before 2026-11-20)
 
 Run `20261112T151658Z` (2026-11-12, 3 min 39 s, local CPU, all activations from the cache, model not loaded), status completed, 144 settings, no NaN values. Page: 4.3 MB. Rerun after the change to the ambiguous items: the ambiguity settings are now `exclude_core` (34 items, `is_ambiguous_core`) and `exclude_extended` (41 items, `is_ambiguous_extended`). They replace `exclude_lenient` (39 items) and `exclude_strict` (72 items); see `data/processed/rosch/README.md`. Items: 565 / 531 / 524 (include / exclude core / exclude extended). The include values are the same as in the earlier run (max difference 0). Git `88c73a3` with uncommitted changes (`dirty: true`): the ambiguity change. The values for exclude core and exclude extended below are from this run. All other values do not change.
 
@@ -104,6 +133,18 @@ Category contrast, layer 15: removing ambiguous items increases both values from
 Category contrast, layer 15, thirds, include all, by category: pooled over prompts, within-category CV: weapon 0.81, vehicle 0.77, clothing 0.73, sport 0.70, fruit 0.58, toy 0.57, furniture 0.57, bird 0.49, vegetable 0.27, tool −0.02. Pooled over categories, between prompts: weapon 0.75, vehicle 0.66, clothing 0.64, furniture 0.53, sport 0.49, toy 0.48, fruit 0.34, vegetable 0.24, bird 0.17, tool 0.11.
 
 ## Interpretation
+
+### Interpretation with raw scoring
+
+Preliminary, from the summary only:
+
+- **On the evaluation prompts, the category contrast gives no gain with raw scoring** (0.42 against raw 0.43 at layer 15; 0.38 against 0.38 at layer 10). The earlier gain (0.49 and 0.51) came from the subtraction at evaluation, which used the evaluation prompts with all other categories.
+- **The result "the category contrast is needed for the negated evaluation prompt" does not hold with raw scoring.** On `rosch_eval_3` the cat contrast probe gives 0.25, the same as raw (0.27); before it was 0.46. The subtraction a(i, c) − mean a(i, c′) removed the part of the negated prompt that is fixed for the item, but the probe direction alone cannot read typicality from the negated prompt.
+- **Pooled over prompts, the category contrast still transfers better between categories** (0.38 against 0.29 at layer 15; 0.44 against 0.33 without ambiguous items). This agrees with the per-category experiment: training on the category contrast gives a direction that is more shared by the categories, also on raw activations.
+- **Pooled over categories, between training prompts, all types are now the same** (0.41 at layer 15). The item contrast is equal to raw, as expected.
+- **Page 3 and item identity**: with raw scoring, both raw and cat contrast probes are scored on raw activations, so the page 3 − page 1 gap is now large for both at layers 20 and 25 (raw 0.52 against 0.32, 0.59 against 0.37; cat contrast 0.45 against 0.30, 0.47 against 0.27). The earlier observation that the category contrast removes item identity from page 3 came from the subtraction at evaluation. A cross-validated page 3 is still necessary.
+
+### Interpretation with matched scoring (before 2026-11-20)
 
 Preliminary, from the summary only (the page is not yet analysed):
 

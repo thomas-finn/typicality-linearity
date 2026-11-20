@@ -1,6 +1,8 @@
 experiment: global-direction-probes-over-categories-prompts-qwen2-5-7B
 title: "Rosch difference-of-means probes pooled over categories and prompts: Qwen2.5-7B, period token"
 model: Qwen/Qwen2.5-7B
+# Baselines are used only for training. All probe scores (transfer cells,
+# held-out items, evaluation prompts) use the raw activations.
 # Raw and category contrast activations (target rows give the raw activations).
 cat_contrast_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
 # Item contrast: 9 contrast items per pair (seed 0).
@@ -23,8 +25,9 @@ prompt_columns:
   - rosch_cat_first_1
   - rosch_cat_first_2
 # Evaluation prompts, never used for training. Pooled over categories: one
-# extra column per prompt. The item contrast evaluation file has the same
-# contrast items as item_contrast_csv (seed 0).
+# extra column per prompt. Only the raw activations of the evaluation
+# prompts are used; the item contrast evaluation file is necessary for the
+# point check.
 eval_cat_contrast_csv: data/processed/rosch/rosch_eval.csv
 eval_item_contrast_csv: data/processed/rosch/rosch_mean_item_contrast_eval.csv
 eval_prompt_columns: [rosch_eval_1, rosch_eval_2, rosch_eval_3]

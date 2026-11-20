@@ -17,8 +17,8 @@ grid, one panel per activation type.
 - Page 3, "Pooled over categories and prompts" (only with evaluation
   prompts): one probe trained on all items of all categories in all training
   prompts. Scatter of typicality (-rating z-score) against the probe score of
-  each item in the selected evaluation prompt. The score is raw (x . direction)
-  or z-scored in each category. One category can be highlighted. The probe is
+  each item in the selected evaluation prompt. The score is x_raw . direction,
+  not z-scored or z-scored in each category. One category can be highlighted. The probe is
   not cross-validated: the items are the training items in a new format.
 
 Colour: diverging around chance, with the same range for all settings of a
@@ -96,7 +96,7 @@ __STYLE__</style>
 </head>
 <body>
 <h1>__TITLE__</h1>
-<p class="subtitle">Difference-of-means probes pooled over categories or over prompt formats. Cross-validated cells use <span id="cv-text"></span>.</p>
+<p class="subtitle">Difference-of-means probes pooled over categories or over prompt formats. Cross-validated cells use <span id="cv-text"></span>. Each probe is trained on the activation type of its panel; all scores are computed on the raw activations.</p>
 
 <div class="tabs" role="tablist">
   <button class="tab" role="tab" aria-selected="true" data-page="oc">Pooled over categories</button>

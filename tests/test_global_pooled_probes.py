@@ -1,6 +1,7 @@
 import csv
 
 import numpy as np
+import pytest
 from test_global_probes import (
     FakeModel,
     cat_rows,
@@ -294,7 +295,6 @@ def test_run_with_nonce_contrast_and_eval_prompts(tmp_path, monkeypatch):
         "prompt_columns": ["rosch_example"],
         "eval_cat_contrast_csv": str(cat_path),
         "eval_item_contrast_csv": str(item_path),
-        "eval_nonce_csv": str(nonce_path),
         "eval_prompt_columns": ["rosch_neg"],
         "layers": [1],
         "position": "period",
@@ -338,19 +338,50 @@ NONCE_CONFIG = (
 )
 
 
-def test_nonce_contrast_with_eval_prompts_needs_eval_nonce_csv(tmp_path):
-    import pytest
+def test_nonce_contrast_with_eval_prompts_does_not_need_eval_nonce_csv(tmp_path):
     import yaml
 
     from typicality_linearity.global_pooled_probe_experiment import load_config
 
     config = load_config(NONCE_CONFIG)
     assert "nonce_contrast" in config["activation_types"]
-    del config["eval_nonce_csv"]
+    config.pop("eval_nonce_csv", None)
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(config))
-    with pytest.raises(ValueError, match="eval_nonce_csv"):
-        load_config(path)
+    load_config(path)
+
+
+def test_pooled_matrices_score_on_the_given_activations():
+    x_by_prompt, y, categories, folds = synthetic()
+    rng = np.random.default_rng(9)
+    x_score = [rng.normal(size=x.shape) for x in x_by_prompt]
+    arguments = (x_by_prompt, y, categories, folds, 3, ["spearman"], "fold_zscored", 5)
+    categories = np.asarray(categories)
+    toy = np.flatnonzero(categories == "toy")
+    all_rows = np.arange(len(y))
+
+    oc, oc_eval, oc_cos = over_categories_matrices(
+        *arguments, "per_category", [x_score[1]], "full", x_score
+    )
+    _, _, default_cos = over_categories_matrices(*arguments, "per_category")
+    np.testing.assert_allclose(oc_cos, default_cos)
+    for pi, x in enumerate(x_by_prompt):
+        direction = pooled_category_direction(
+            x, all_rows, y, categories, 3, "per_category"
+        )
+        expected = spearman(x_score[pi][toy] @ direction, y[toy])
+        assert oc[0, pi, pi, 0] == pytest.approx(expected)
+    # The eval prompt is the score prompt 1. Train prompt 0 to prompt 1 is CV
+    # in both, so the cells are the same.
+    np.testing.assert_allclose(oc_eval[:, 0, 0], oc[:, 0, 1])
+
+    op, op_cos = over_prompts_matrices(*arguments, "full", x_score)
+    _, default_op_cos = over_prompts_matrices(*arguments, "full")
+    np.testing.assert_allclose(op_cos, default_op_cos)
+    direction = pooled_prompt_direction(x_by_prompt, toy, y, 3)
+    for pi in range(len(x_by_prompt)):
+        expected = spearman(x_score[pi][toy] @ direction, y[toy])
+        assert op[0, 0, 0, pi] == pytest.approx(expected)
 
 
 def test_global_direction_is_mean_of_prompt_directions():

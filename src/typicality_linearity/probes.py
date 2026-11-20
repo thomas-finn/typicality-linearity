@@ -7,38 +7,26 @@ of an activation x is x . direction.
 The target y is typicality, where a higher value is more typical.
 """
 
+import warnings
+
 import numpy as np
+from scipy import stats
 
 # Metrics
 
 
-def average_ranks(values):
-    """Return ranks 1..n. Tied values get the mean of their ranks."""
-    values = np.asarray(values, dtype=np.float64)
-    order = np.argsort(values, kind="stable")
-    ranks = np.empty(len(values), dtype=np.float64)
-    ranks[order] = np.arange(1, len(values) + 1)
-    for value in np.unique(values):
-        tied = values == value
-        if tied.sum() > 1:
-            ranks[tied] = ranks[tied].mean()
-    return ranks
-
-
 def pearson(a, b):
     """Return the Pearson correlation, or NaN if one input is constant."""
-    a = np.asarray(a, dtype=np.float64)
-    b = np.asarray(b, dtype=np.float64)
-    a = a - a.mean()
-    b = b - b.mean()
-    denominator = np.sqrt((a * a).sum() * (b * b).sum())
-    if denominator == 0:
-        return float("nan")
-    return float((a * b).sum() / denominator)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", stats.ConstantInputWarning)
+        return float(stats.pearsonr(a, b).statistic)
 
 
 def spearman(a, b):
-    return pearson(average_ranks(a), average_ranks(b))
+    """Return the Spearman correlation, or NaN if one input is constant."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", stats.ConstantInputWarning)
+        return float(stats.spearmanr(a, b).statistic)
 
 
 def extreme_groups(y, n_groups):
@@ -66,11 +54,8 @@ def wilcoxon_auc(scores, y, n_groups):
     if not np.all(np.isfinite(scores)):
         return float("nan")
     least, most = extreme_groups(y, n_groups)
-    ranks = average_ranks(np.concatenate([scores[most], scores[least]]))
-    n_most = len(most)
-    n_least = len(least)
-    u = ranks[:n_most].sum() - n_most * (n_most + 1) / 2
-    return float(u / (n_most * n_least))
+    u = stats.mannwhitneyu(scores[most], scores[least]).statistic
+    return float(u / (len(most) * len(least)))
 
 
 # Folds

@@ -1,6 +1,8 @@
 experiment: global-direction-probes-per-category-prompt-qwen2-5-7B
 title: "Rosch difference-of-means probes by activation type: Qwen2.5-7B, period token"
 model: Qwen/Qwen2.5-7B
+# Baselines are used only for training. All probe scores (transfer cells,
+# held-out items, evaluation prompts) use the raw activations.
 # Raw and category contrast activations (target rows give the raw activations).
 cat_contrast_csv: data/processed/rosch/rosch_mean_cat_contrast.csv
 # Item contrast: 9 contrast items per pair (seed 0).

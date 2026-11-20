@@ -32,6 +32,9 @@ Matrices for each setting:
 | 3 | Transfer between prompts, per category and metric | train × eval prompt (15 × 15) | off-diagonal: CV with the same folds, so a probe is never evaluated on its training items; diagonal: CV, or in-sample with `diagonal: full` |
 | 4 | Cosine between prompts, per category | 15 × 15 | probe directions on all items |
 
+
+**Scoring change (2026-11-20).** Baselines are now used only to train the probes. All scores (transfer cells, held-out items, in-sample diagonals and evaluation prompts) are x_raw · direction. Before, a probe was scored on activations of its own type (for example a category contrast probe on category contrast activations). Run `20261120T150505Z` is the first run with raw scoring (see Result). The older results are kept under it for comparison.
+
 ## Command
 
 From the repository root:
@@ -48,6 +51,29 @@ The page has four pages (tabs). Each is a 2×2 grid of heatmaps, one per activat
 Pages 2 and 4 also have a 2×2 grid of dendrograms under the heatmaps, one per activation type. Each is average linkage (UPGMA) on the distance 1 − cosine of the heatmap above (scipy). The cosine heatmap above each tree has its rows and columns in the same leaf order, so the order changes with the selectors. Each panel gives the cophenetic correlation and the root height. The height axis is the same for all settings of a page. The trees add about 0.6 MB to the page.
 
 ## Result
+
+### Raw scoring (2026-11-20)
+
+Run `20261120T150505Z` (2026-11-20, local CPU, all activations from the cache), status completed. The same config as `20261118T161202Z`, with all scores on raw activations. Run `20261120T145218Z` is the same command, run a second time by mistake; its summary is the same (max difference 0). Checks against `20261118T161202Z`: the raw rows and all cosine columns are the same (max difference 0), as expected.
+
+L15, thirds, include, Spearman. Matched scoring (before) → raw scoring:
+
+| Activation type (training) | Category within | Between categories | Between prompts |
+|:-|:-|:-|:-|
+| raw | 0.673 → 0.673 | 0.277 → 0.277 | 0.405 → 0.405 |
+| cat contrast | 0.698 → 0.632 | 0.392 → 0.363 | 0.443 → 0.361 |
+| item contrast | 0.671 → 0.662 | 0.256 → 0.271 | 0.387 → 0.402 |
+| both contrasts | 0.704 → 0.611 | 0.357 → 0.344 | 0.422 → 0.353 |
+
+Cat contrast between categories without ambiguous items: 0.388 (exclude core, before 0.420), 0.401 (exclude extended, before 0.435).
+
+Include, thirds, Spearman, raw scoring, layers 10 / 15 / 20 / 25:
+- Between categories: raw 0.19 / 0.28 / 0.25 / 0.17; cat contrast 0.30 / 0.36 / 0.31 / 0.22; item contrast 0.18 / 0.27 / 0.24 / 0.16; both 0.27 / 0.34 / 0.29 / 0.20.
+- Between prompts: raw 0.40 / 0.41 / 0.33 / 0.45; cat contrast 0.35 / 0.36 / 0.26 / 0.22; item contrast 0.39 / 0.40 / 0.32 / 0.44; both 0.34 / 0.35 / 0.26 / 0.20.
+
+The interpretation below is for the matched scoring. See "Interpretation with raw scoring" for this run.
+
+### Matched scoring (before 2026-11-20)
 
 Run `20261118T161202Z` (2026-11-18, 3 min 5 s, local CPU, all activations from the cache, model not loaded), status completed. First run with the plural agreement fix of the prompts (see "Plural items" in `data/processed/rosch/README.md`) and `diagonal: full` (`within_method` = `in_sample`). Compared with run `20261118T112304Z` (the same config, old prompts): the largest difference over all settings and summary columns is 0.003 (mean 0.0005). The fix does not change the results.
 
@@ -93,6 +119,18 @@ Layer 15, category contrast: between categories 0.40 / 0.39 / 0.42 (halves / thi
 Category CV by category (layer 15, thirds, include, category contrast): weapon 0.83, vehicle 0.78, clothing 0.76, sport 0.70, fruit 0.60, furniture 0.58, toy 0.57, bird 0.48, vegetable 0.25, tool 0.07. By prompt: 0.43 (`rosch_simple`) and 0.46 (`rosch_fav`) to 0.66 (`rosch_cat_first_1`).
 
 ## Interpretation
+
+### Interpretation with raw scoring
+
+Preliminary, from the summary only:
+
+- **A category contrast direction still transfers better between categories on raw activations** (0.36 against 0.28 for a raw-trained probe at layer 15, and higher at all layers). So training on the category contrast finds a direction that reads typicality from a single prompt in other categories better than training on raw. About a quarter of the earlier gain (0.39 against 0.28) came from the subtraction at evaluation.
+- **Between prompts, the category contrast direction is now worse than raw** (0.36 against 0.41 at layer 15; 0.22 against 0.45 at layer 25). The earlier gain between prompts came from the subtraction at evaluation. The category contrast direction probably has a part that cancels in a(i, c) − a(i, c′) but changes between prompt formats on raw activations.
+- **The within-category value falls with the category contrast** (0.70 → 0.63, in-sample). Without the subtraction, the item-level variation that the contrast removed is noise along the direction.
+- **The item contrast now equals raw or is a little better** (between categories 0.27 against 0.28, between prompts 0.40 against 0.41). This agrees with the expectation: its baseline is almost constant inside a category, so the scoring change removes only the noise of the random contrast items.
+- **Both contrasts behave like the category contrast**, a little lower.
+
+### Interpretation with matched scoring (before 2026-11-20)
 
 Preliminary, from the summary only (the page is not yet analysed):
 

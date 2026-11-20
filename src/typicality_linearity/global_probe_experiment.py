@@ -5,6 +5,11 @@ global_pca_experiment.py (raw, mean category contrast, mean item contrast,
 both contrasts). The target is typicality = target_sign x target (higher is
 more typical).
 
+Baselines are used only for training. Each probe is trained on the
+activations of its activation type, and all scores are computed on the raw
+activations: x_raw . direction. So the evaluation of a probe never uses the
+other prompts of a baseline.
+
 Optional config keys:
 - activation_types: the types to use (default: the four above). The type
   "nonce_contrast" is a(i, c) - a(i, nonce): the raw activation minus the
@@ -295,10 +300,14 @@ def setting_matrices(
     aggregate,
     n_folds,
     diagonal="cv",
+    x_score_by_prompt=None,
 ):
     """Return the four matrices for one setting.
 
-    x_by_prompt: list of arrays (n_rows, d_model), one per prompt, same rows
+    x_by_prompt: list of arrays (n_rows, d_model), one per prompt, same rows.
+    The probes are trained on these.
+    x_score_by_prompt: the activations the probes are scored on, same shapes
+    (the raw activations). Default: x_by_prompt.
     y: typicality of each row; categories: category of each row (in order)
     folds: fold of each row
     diagonal: "cv" or "full" (the full probe on its training items)
@@ -315,6 +324,8 @@ def setting_matrices(
     n_m = len(metrics)
     n_p = len(x_by_prompt)
     n_c = len(category_names)
+    if x_score_by_prompt is None:
+        x_score_by_prompt = x_by_prompt
 
     full = {}
     by_fold = {}
@@ -327,7 +338,7 @@ def setting_matrices(
 
     category_transfer = np.empty((n_m, n_p, n_c, n_c))
     category_cosine = np.empty((n_p, n_c, n_c))
-    for pi, x in enumerate(x_by_prompt):
+    for pi, x in enumerate(x_score_by_prompt):
         category_cosine[pi] = cosine_matrix([full[ci, pi] for ci in range(n_c)])
         for ti in range(n_c):
             for ei, rows in enumerate(rows_of):
@@ -350,7 +361,7 @@ def setting_matrices(
     for ci, rows in enumerate(rows_of):
         prompt_cosine[ci] = cosine_matrix([full[ci, pi] for pi in range(n_p)])
         for ti in range(n_p):
-            for ei, x in enumerate(x_by_prompt):
+            for ei, x in enumerate(x_score_by_prompt):
                 if ti == ei and diagonal == "full":
                     scores = x[rows] @ full[ci, ti]
                     for mi, metric in enumerate(metrics):
@@ -439,15 +450,19 @@ def load_points(
     item_csv=None,
     prompt_columns=None,
     nonce_csv=None,
+    types=None,
 ):
     """Return (point rows, {prompt: {type: array (n_points, n_layers, d)}}).
 
     The files and prompts default to the config's cat_contrast_csv,
-    item_contrast_csv, prompt_columns and nonce_csv. Only the types of
-    config_activation_types are kept. The nonce contrast uses the rows of
-    nonce_csv (the same prompts with a nonce word as the category).
+    item_contrast_csv, prompt_columns and nonce_csv. The types default to
+    config_activation_types. "raw" is always kept, because the probes are
+    scored on it. The nonce contrast uses the rows of nonce_csv (the same
+    prompts with a nonce word as the category).
     """
-    wanted = config_activation_types(config)
+    wanted = list(types or config_activation_types(config))
+    if "raw" not in wanted:
+        wanted.append("raw")
     cat_rows = read_rows(cat_csv or config["cat_contrast_csv"])
     item_rows = read_rows(item_csv or config["item_contrast_csv"])
     cat_groups = mean_contrast_groups(cat_rows)
@@ -508,6 +523,7 @@ def run(config, config_path):
         lazy_model = LazyModel(extraction_config(config), metadata)
         metadata["device"] = None
         metadata["activation_sources"] = {}
+        metadata["score_activation_type"] = "raw"
         point_rows, types_by_prompt = load_points(config, lazy_model, metadata)
 
         prompts = list(config["prompt_columns"])
@@ -547,6 +563,9 @@ def run(config, config_path):
                     x_by_prompt = [
                         types_by_prompt[p][activation_type][keep, li] for p in prompts
                     ]
+                    x_raw_by_prompt = [
+                        types_by_prompt[p]["raw"][keep, li] for p in prompts
+                    ]
                     for gi, n_groups in enumerate(group_counts):
                         result = setting_matrices(
                             x_by_prompt,
@@ -558,6 +577,7 @@ def run(config, config_path):
                             config["cv_aggregate"],
                             config["n_folds"],
                             config_diagonal(config),
+                            x_raw_by_prompt,
                         )
                         for name, values in result.items():
                             arrays[name][ai, ti, li, gi] = values

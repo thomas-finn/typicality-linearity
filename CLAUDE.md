@@ -9,7 +9,4 @@
 - Use `uv add` for dependencies, never `pip install`.
 - When unsure about experiment design or data assumptions, ask rather than guess.
 
-## Experiments 
-
-### PCA analysis
 

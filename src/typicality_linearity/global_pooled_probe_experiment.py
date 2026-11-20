@@ -1,9 +1,16 @@
 """Difference-of-means probes pooled over categories or over prompts.
 
 The points, activation types (`activation_types`, with the nonce contrast
-from `nonce_csv` and, for the evaluation prompts, `eval_nonce_csv`), settings (ambiguity, activation type, layer,
-n_groups), folds, metrics and CV aggregation are the same as in
-global_probe_experiment.py. Here the probes are pooled:
+from `nonce_csv`), settings (ambiguity, activation type, layer, n_groups),
+folds, metrics and CV aggregation are the same as in
+global_probe_experiment.py.
+
+Baselines are used only for training. The probes are trained on the
+activations of the activation type, and all scores (also on the evaluation
+prompts) are computed on the raw activations. For the evaluation prompts,
+only the raw activations are loaded.
+
+Here the probes are pooled:
 
 - Over categories (page 1): one probe per prompt, trained on the items of all
   categories together. `over_categories_groups` sets the groups:
@@ -144,12 +151,6 @@ def load_config(path):
         for key in ("eval_cat_contrast_csv", "eval_item_contrast_csv"):
             if not config.get(key):
                 raise ValueError(f"eval_prompt_columns needs {key}")
-        if "nonce_contrast" in config_activation_types(config) and not config.get(
-            "eval_nonce_csv"
-        ):
-            raise ValueError(
-                "nonce_contrast with eval_prompt_columns needs eval_nonce_csv"
-            )
     return config
 
 
@@ -194,14 +195,17 @@ def over_categories_matrices(
     mode,
     x_eval_by_prompt=(),
     diagonal="cv",
+    x_score_by_prompt=None,
 ):
     """Return (transfer (n_m, n_p, n_p, n_c), eval transfer (n_m, n_p, n_e, n_c),
     cosine (n_p, n_p)).
 
-    One probe per prompt on all categories. Cells are CV, except the diagonal
-    with diagonal "full" (the probe on all items, in-sample). The last axis is
-    the eval category (mean over it gives the page value). x_eval_by_prompt:
-    the activations of the same rows in the n_e evaluation prompts.
+    One probe per prompt on all categories, trained on x_by_prompt. Cells are
+    CV, except the diagonal with diagonal "full" (the probe on all items,
+    in-sample). The last axis is the eval category (mean over it gives the
+    page value). x_score_by_prompt: the activations the training prompts are
+    scored on (the raw activations; default x_by_prompt). x_eval_by_prompt:
+    the activations the n_e evaluation prompts are scored on, same rows.
     """
     category_names = list(dict.fromkeys(categories))
     categories = np.asarray(categories)
@@ -210,6 +214,8 @@ def over_categories_matrices(
         check_groups(len(rows), n_groups, n_folds)
     n_m, n_p, n_c = len(metrics), len(x_by_prompt), len(category_names)
     all_rows = np.arange(len(y))
+    if x_score_by_prompt is None:
+        x_score_by_prompt = x_by_prompt
 
     full = np.stack(
         [
@@ -251,7 +257,7 @@ def over_categories_matrices(
     transfer = np.empty((n_m, n_p, n_p, n_c))
     eval_transfer = np.empty((n_m, n_p, len(x_eval_by_prompt), n_c))
     for ti in range(n_p):
-        for ei, x in enumerate(x_by_prompt):
+        for ei, x in enumerate(x_score_by_prompt):
             if ti == ei and diagonal == "full":
                 transfer[:, ti, ei] = full_by_category(full[ti], x)
             else:
@@ -292,7 +298,8 @@ def global_eval_scores(
 ):
     """Return (raw scores (n_e, n), z scores (n_e, n), metrics (n_m, n_e)).
 
-    The metrics are computed in each category, then averaged.
+    The direction is trained on x_by_prompt and scored on x_eval_by_prompt.
+    "raw scores" are the scores before the z-score. The metrics are computed in each category, then averaged.
     """
     categories = np.asarray(categories)
     direction = global_direction(x_by_prompt, y, categories, n_groups, mode)
@@ -336,10 +343,13 @@ def over_prompts_matrices(
     aggregate,
     n_folds,
     diagonal="cv",
+    x_score_by_prompt=None,
 ):
     """Return (transfer (n_m, n_c, n_c, n_p), cosine (n_c, n_c)).
 
-    One probe per category on all prompts. The last axis is the eval prompt
+    One probe per category on all prompts, trained on x_by_prompt and scored
+    on x_score_by_prompt (the raw activations; default x_by_prompt). The last
+    axis is the eval prompt
     (mean over it gives the page value). The diagonal is CV, or with diagonal
     "full" the probe on all items of the category (in-sample).
     """
@@ -347,6 +357,8 @@ def over_prompts_matrices(
     categories = np.asarray(categories)
     rows_of = [np.flatnonzero(categories == c) for c in category_names]
     n_m, n_p, n_c = len(metrics), len(x_by_prompt), len(category_names)
+    if x_score_by_prompt is None:
+        x_score_by_prompt = x_by_prompt
 
     full = []
     by_fold = []
@@ -368,7 +380,7 @@ def over_prompts_matrices(
     transfer = np.empty((n_m, n_c, n_c, n_p))
     for ti in range(n_c):
         for ei, rows in enumerate(rows_of):
-            for pi, x in enumerate(x_by_prompt):
+            for pi, x in enumerate(x_score_by_prompt):
                 x_eval = x[rows]
                 if ti == ei and diagonal == "cv":
                     scores = out_of_fold_scores(by_fold[ti], x_eval, folds[rows])
@@ -407,6 +419,7 @@ def run(config, config_path):
         lazy_model = LazyModel(extraction_config(config), metadata)
         metadata["device"] = None
         metadata["activation_sources"] = {}
+        metadata["score_activation_type"] = "raw"
         point_rows, types_by_prompt = load_points(config, lazy_model, metadata)
         eval_prompts = list(config.get("eval_prompt_columns") or [])
         eval_types_by_prompt = {}
@@ -418,7 +431,7 @@ def run(config, config_path):
                 config["eval_cat_contrast_csv"],
                 config["eval_item_contrast_csv"],
                 eval_prompts,
-                config.get("eval_nonce_csv"),
+                types=["raw"],
             )
             check_same_rows(point_rows, eval_rows)
 
@@ -464,9 +477,11 @@ def run(config, config_path):
                     x_by_prompt = [
                         types_by_prompt[p][activation_type][keep, li] for p in prompts
                     ]
+                    x_raw_by_prompt = [
+                        types_by_prompt[p]["raw"][keep, li] for p in prompts
+                    ]
                     x_eval_by_prompt = [
-                        eval_types_by_prompt[p][activation_type][keep, li]
-                        for p in eval_prompts
+                        eval_types_by_prompt[p]["raw"][keep, li] for p in eval_prompts
                     ]
                     for gi, n_groups in enumerate(group_counts):
                         arguments = (
@@ -484,9 +499,10 @@ def run(config, config_path):
                             config["over_categories_groups"],
                             x_eval_by_prompt,
                             config_diagonal(config),
+                            x_raw_by_prompt,
                         )
                         op, op_cos = over_prompts_matrices(
-                            *arguments, config_diagonal(config)
+                            *arguments, config_diagonal(config), x_raw_by_prompt
                         )
                         index = (ai, ti, li, gi)
                         arrays["over_categories_by_category"][index] = oc

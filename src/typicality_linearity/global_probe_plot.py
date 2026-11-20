@@ -250,7 +250,7 @@ __STYLE__</style>
 </head>
 <body>
 <h1>__TITLE__</h1>
-<p class="subtitle">Difference-of-means probes: the mean activation of the most typical items minus the mean of the least typical items. Cross-validated cells use <span id="cv-text"></span>.</p>
+<p class="subtitle">Difference-of-means probes: the mean activation of the most typical items minus the mean of the least typical items. Cross-validated cells use <span id="cv-text"></span>. Each probe is trained on the activation type of its panel; all scores are computed on the raw activations.</p>
 
 <div class="tabs" role="tablist">
   <button class="tab" role="tab" aria-selected="true" data-page="ct">Transfer between categories</button>

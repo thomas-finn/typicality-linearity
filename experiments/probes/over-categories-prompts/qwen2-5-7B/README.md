@@ -14,6 +14,9 @@ The same as `../qwen2-5-1-5B/README.md`: 565 rated pairs, 15 training prompt for
 
 - `diagonal: full` (added 2026-11-18): the diagonal cells of the transfer matrices use the probe trained on all items, evaluated on the same items (in-sample, not cross-validated). The off-diagonal cells do not change. The results below are from runs before this change, with a CV diagonal (`diagonal: cv`, the default when the key is not set).
 
+
+**Scoring change (2026-11-20).** Baselines are now used only to train the probes. All scores (transfer cells, held-out items, in-sample diagonals and evaluation prompts) are x_raw · direction. Before, a probe was scored on activations of its own type (for example a category contrast probe on category contrast activations). The results below are from runs before this change. Run the experiment again to get results with raw scoring. The raw rows do not change.
+
 ## Command
 
 From the repository root:
