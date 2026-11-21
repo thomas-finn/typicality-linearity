@@ -24,9 +24,9 @@ There are three main types of experiments that we will perform using the suite o
  - *Probes* to test if typicality is linearly encoded.
  - *Steering* to test if any typicality directions discovered are causal.
 
-Outputs from experiments and activations are stored in [`outputs`](./outputs/) but this is not committed to git due to large file sizes. This will cause some html output files to not render properly unless the required scripts are ran locally.
+Outputs from experiments and activations are stored in [`outputs`](./outputs/) but this is not committed to git due to large file sizes.
 
-Activations are extracted using the scripts in [`experiments/`]
+Activations are extracted using the scripts in [`experiments/activations`](./experiments/activations/).
 
 ### PCA analysis
 
